@@ -27,6 +27,17 @@ share/python-wheels/
 MANIFEST
 
 # PyInstaller
+# Node
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.dev.vars.*
+*.log
+
+# Ventriloquist runtime state (never commit session material)
+sessions/
+*.age
 #   Usually these files are written by a python script from a template
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
@@ -216,3 +227,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+.wrangler-smoke/
+.smoke-logs/

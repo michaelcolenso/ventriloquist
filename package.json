@@ -1,0 +1,19 @@
+{
+  "name": "ventriloquist",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unofficial TikTok MCP facade: no official APIs, dual-path failover, accumulated trend data.",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck",
+    "dev": "pnpm --filter @ventriloquist/worker run dev",
+    "signer:dev": "pnpm --filter @ventriloquist/signer run dev",
+    "migrate:local": "pnpm --filter @ventriloquist/worker run migrate:local",
+    "migrate:remote": "pnpm --filter @ventriloquist/worker run migrate:remote",
+    "smoke": "node scripts/smoke.mjs"
+  }
+}
