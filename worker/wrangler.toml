@@ -1,0 +1,64 @@
+name = "ventriloquist"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+# D1 holds the accumulated time-series asset (see spec section 5).
+# Replace the id with `wrangler d1 create ventriloquist` output before deploying.
+[[d1_databases]]
+binding = "DB"
+database_name = "ventriloquist"
+database_id = "local-dev-placeholder"
+migrations_dir = "migrations"
+
+# KV holds circuit-breaker state, msToken cache and the daily paid budget.
+[[kv_namespaces]]
+binding = "KV"
+id = "local-dev-placeholder"
+
+# R2 holds render artifacts, media pulled for transcription and thumbnails.
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "ventriloquist-media"
+
+[[queues.producers]]
+binding = "POSTING_QUEUE"
+queue = "ventriloquist-posting"
+
+[[queues.consumers]]
+queue = "ventriloquist-posting"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 2
+dead_letter_queue = "ventriloquist-posting-dlq"
+
+# One cron per job class so the dispatcher can key off the cron string:
+#   */15 * * * *   signer-canary
+#   5 */4 * * *    snapshot-watchlist
+#   35 */4 * * *   snapshot-creative-center
+#   15 */6 * * *   snapshot-shadow-cohort
+#   45 */6 * * *   snapshot-own-account
+#   30 9 * * *     studio-deep-scrape
+#   0 7 * * 1      session-refresh
+[triggers]
+crons = [
+  "*/15 * * * *",
+  "5 */4 * * *",
+  "35 */4 * * *",
+  "15 */6 * * *",
+  "45 */6 * * *",
+  "30 9 * * *",
+  "0 7 * * 1",
+]
+
+[vars]
+DAILY_PAID_BUDGET_USD = "3"
+SCRAPEBADGER_USD_PER_CALL = "0.001"
+DEFAULT_REGION = "US"
+OWN_ACCOUNT_HANDLE = "nobodynamed"
+PROVIDER_FAILURE_THRESHOLD = "3"
+PROVIDER_COOLDOWN_SECONDS = "900"
+PROVIDER_TIMEOUT_MS = "15000"

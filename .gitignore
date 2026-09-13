@@ -14,8 +14,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Anchored to the repo root: the Python packaging template's `lib/` rule would
+# otherwise swallow worker/src/lib.
+/lib/
+/lib64/
 parts/
 sdist/
 var/
