@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TOOLS, TOOLS_BY_NAME } from "../src/mcp/tools";
 import { describeTool, toolAnnotations } from "../src/mcp/registry";
 
-/** Section 4 tools in the order they land: phase 2 adds the velocity-first reads. */
+/** Section 4 tools in the order they land: phase 3 adds the comment-mining trio. */
 const SPEC_TOOLS = [
   "tt_trending_hashtags",
   "tt_trending_sounds",
@@ -14,6 +14,9 @@ const SPEC_TOOLS = [
   "tt_video_detail",
   "tt_shadow_cohort",
   "tt_compare_accounts",
+  "tt_video_comments",
+  "tt_mine_comment_ideas",
+  "tt_comment_sentiment",
 ];
 
 describe("MCP tool surface (spec section 4)", () => {
