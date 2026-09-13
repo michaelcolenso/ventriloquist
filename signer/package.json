@@ -1,0 +1,23 @@
+{
+  "name": "@ventriloquist/signer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted TikTok request signer gateway (Puppeteer + TikTok's own web SDK).",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fastify": "^5.12.4",
+    "puppeteer-core": "^24.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}
