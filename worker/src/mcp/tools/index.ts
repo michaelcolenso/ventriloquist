@@ -1,5 +1,12 @@
 import type { ToolDefinition } from "../registry";
-import { searchVideosTool, trendingHashtags, trendingSounds } from "./trends";
+import {
+  emergingInNicheTool,
+  hashtagMomentumTool,
+  searchVideosTool,
+  soundLifecycleTool,
+  trendingHashtags,
+  trendingSounds,
+} from "./trends";
 import { compareAccountsTool, profileTool, shadowCohortTool, videoDetailTool } from "./accounts";
 import { systemStatusTool } from "./system";
 
@@ -9,7 +16,10 @@ export const TOOLS: ToolDefinition<any>[] = [
   // 4.1 Trend intelligence
   trendingHashtags,
   trendingSounds,
+  hashtagMomentumTool,
+  emergingInNicheTool,
   searchVideosTool,
+  soundLifecycleTool,
   // 4.2 Account & video intelligence
   profileTool,
   videoDetailTool,

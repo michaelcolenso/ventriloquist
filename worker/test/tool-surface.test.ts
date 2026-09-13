@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { TOOLS, TOOLS_BY_NAME } from "../src/mcp/tools";
 import { describeTool, toolAnnotations } from "../src/mcp/registry";
 
-/** Section 4 tools in the order they land. Phase 1 wires the 4.1/4.2 reads. */
+/** Section 4 tools in the order they land: phase 2 adds the velocity-first reads. */
 const SPEC_TOOLS = [
   "tt_trending_hashtags",
   "tt_trending_sounds",
+  "tt_hashtag_momentum",
+  "tt_emerging_in_niche",
   "tt_search_videos",
+  "tt_sound_lifecycle",
   "tt_profile",
   "tt_video_detail",
   "tt_shadow_cohort",
