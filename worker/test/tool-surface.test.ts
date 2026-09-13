@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TOOLS, TOOLS_BY_NAME } from "../src/mcp/tools";
 import { describeTool, toolAnnotations } from "../src/mcp/registry";
 
-/** Section 4 tools in the order they land: phase 4 adds the queued RED path. */
+/** Section 4 tools, in spec order. Phase 5 completes the table. */
 const SPEC_TOOLS = [
   "tt_trending_hashtags",
   "tt_trending_sounds",
@@ -17,6 +17,9 @@ const SPEC_TOOLS = [
   "tt_video_comments",
   "tt_mine_comment_ideas",
   "tt_comment_sentiment",
+  "tt_own_video_metrics",
+  "tt_own_deep_analytics",
+  "tt_what_worked",
   "tt_queue_post",
   "tt_job_status",
   "tt_render_and_post",
@@ -40,7 +43,8 @@ describe("MCP tool surface (spec section 4)", () => {
   it("labels risk tiers by capability class", () => {
     const byRisk = (risk: string) => TOOLS.filter((tool) => tool.risk === risk).map((tool) => tool.name);
     expect(byRisk("RED").sort()).toEqual(["tt_queue_post", "tt_render_and_post"]);
-    expect(byRisk("GREEN")).toHaveLength(TOOLS.length - 2);
+    expect(byRisk("AMBER")).toEqual(["tt_own_deep_analytics"]);
+    expect(byRisk("GREEN")).toHaveLength(TOOLS.length - 3);
   });
 
   it("embeds the risk tier and its caveat in every tool description", () => {

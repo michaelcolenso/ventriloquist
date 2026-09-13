@@ -10,6 +10,7 @@ import {
 import { compareAccountsTool, profileTool, shadowCohortTool, videoDetailTool } from "./accounts";
 import { commentSentimentTool, mineCommentIdeasTool, videoCommentsTool } from "./comments";
 import { jobStatusTool, queuePostTool, renderAndPostTool } from "./posting";
+import { ownDeepAnalyticsTool, ownVideoMetricsTool, whatWorkedTool } from "./own";
 import { systemStatusTool } from "./system";
 
 // `ToolDefinition<any>` erases the per-tool zod shape so the collection can hold
@@ -31,6 +32,10 @@ export const TOOLS: ToolDefinition<any>[] = [
   videoCommentsTool,
   mineCommentIdeasTool,
   commentSentimentTool,
+  // 4.4 Own-account analytics
+  ownVideoMetricsTool,
+  ownDeepAnalyticsTool,
+  whatWorkedTool,
   // 4.5 Publishing (queued, RED)
   queuePostTool,
   jobStatusTool,
