@@ -1,9 +1,11 @@
+import type { PostJobMessage } from "./storage/jobs";
+
 export interface Env {
   // Bindings (see wrangler.toml)
   DB: D1Database;
   KV: KVNamespace;
   MEDIA: R2Bucket;
-  POSTING_QUEUE: Queue;
+  POSTING_QUEUE: Queue<PostJobMessage>;
 
   // Secrets / vars
   SIGNER_GATEWAY_URL?: string;

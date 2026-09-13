@@ -9,6 +9,7 @@ import {
 } from "./trends";
 import { compareAccountsTool, profileTool, shadowCohortTool, videoDetailTool } from "./accounts";
 import { commentSentimentTool, mineCommentIdeasTool, videoCommentsTool } from "./comments";
+import { jobStatusTool, queuePostTool, renderAndPostTool } from "./posting";
 import { systemStatusTool } from "./system";
 
 // `ToolDefinition<any>` erases the per-tool zod shape so the collection can hold
@@ -30,6 +31,10 @@ export const TOOLS: ToolDefinition<any>[] = [
   videoCommentsTool,
   mineCommentIdeasTool,
   commentSentimentTool,
+  // 4.5 Publishing (queued, RED)
+  queuePostTool,
+  jobStatusTool,
+  renderAndPostTool,
   // Ops
   systemStatusTool,
 ];

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { countRows } from "../../storage/snapshots";
+import { consecutivePostFailures } from "../../storage/jobs";
 import { defineTool } from "../registry";
 
 /**
@@ -59,6 +60,7 @@ export const systemStatusTool = defineTool({
     }
 
     const budget = await ctx.backends.ledger.budgetState(ctx.now);
+    const failures = await consecutivePostFailures(ctx.env.DB, ctx.now);
 
     const [hashtagSnapshots, videoSnapshots, soundSnapshots, watchlistSize, cohortSize, ideas, jobs] =
       await Promise.all([
@@ -79,6 +81,9 @@ export const systemStatusTool = defineTool({
       warnings.push(
         `Daily paid budget spent ($${budget.spentUSD.toFixed(4)}/$${budget.budgetUSD}): paid fallback is skipped and only free paths run.`,
       );
+    }
+    if (failures >= 2) {
+      warnings.push(`Posting is halted after ${failures} consecutive failures.`);
     }
     if (!ctx.env.SIGNER_GATEWAY_URL) {
       warnings.push("SIGNER_GATEWAY_URL is unset: the self-hosted path is disabled in this deployment.");
@@ -105,6 +110,7 @@ export const systemStatusTool = defineTool({
           content_ideas: ideas,
           post_jobs: jobs,
         },
+        posting: { consecutive_failures: failures, halted: failures >= 2 },
       },
       warnings: warnings.length ? warnings : undefined,
       meta: { provider: "worker", source: "ventriloquist" },

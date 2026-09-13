@@ -1,0 +1,23 @@
+{
+  "name": "@ventriloquist/vps-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "VPS worker: owns the posting session, executes queued posts, and runs AMBER Studio scrapes.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fastify": "^5.12.4",
+    "playwright-core": "^1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}
