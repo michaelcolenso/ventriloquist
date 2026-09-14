@@ -11,6 +11,7 @@
  * metadata all run for real.
  */
 import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,26 @@ const LOG_DIR = path.join(ROOT, ".smoke-logs");
 // breaker or a half-full D1 from a previous run.
 const STATE_DIR = path.join(ROOT, ".wrangler-smoke");
 const D1_FLAGS = ["--local", `--persist-to`, STATE_DIR];
+
+// Resolve the workspace-local binaries rather than shelling out to `npx`.
+//
+// `npx <pkg>` only looks in the *current* directory's node_modules and then
+// falls back to the npm registry, so this script used to stall for ~70s and
+// die on any machine with no network egress: `wrangler` is installed in
+// worker/node_modules and `tsx` in signer/node_modules, and neither is visible
+// from the repo root. `pnpm install` already puts both on disk.
+function localBin(pkg, dir) {
+  const bin = path.join(dir, "node_modules", ".bin", pkg);
+  if (!existsSync(bin)) {
+    throw new Error(
+      `${pkg} is not installed in ${path.relative(ROOT, dir) || "."}/node_modules - run \`pnpm install\` at the repo root first.`,
+    );
+  }
+  return bin;
+}
+
+const WRANGLER = localBin("wrangler", WORKER_DIR);
+const TSX = localBin("tsx", SIGNER_DIR);
 
 const WORKER_PORT = Number(process.env.SMOKE_WORKER_PORT ?? 8787);
 const SIGNER_PORT = Number(process.env.SMOKE_SIGNER_PORT ?? 8788);
@@ -59,8 +80,8 @@ function run(command, args, options = {}) {
 }
 
 function start(command, args, options = {}) {
-  // detached so the SIGTERM below reaches the whole process group: `npx`
-  // spawns the real node process as a child and would otherwise survive.
+  // detached so the SIGTERM below reaches the whole process group: `wrangler
+  // dev` spawns workerd (and esbuild) as children that would otherwise survive.
   const child = spawn(command, args, { stdio: "pipe", detached: true, ...options });
   child.stdout?.on("data", () => {});
   child.stderr?.on("data", () => {});
@@ -174,7 +195,7 @@ async function main() {
   await rm(STATE_DIR, { recursive: true, force: true });
 
   console.log("preparing local D1…");
-  await run("npx", ["wrangler", "d1", "migrations", "apply", "DB", ...D1_FLAGS], {
+  await run(WRANGLER, ["d1", "migrations", "apply", "DB", ...D1_FLAGS], {
     cwd: WORKER_DIR,
   });
   // Seed three days of history so the velocity engine has something real to
@@ -192,8 +213,8 @@ async function main() {
        ('ranking', ${now - 3600}, 20000000, 11000, 'signer');`,
   ].join(" ");
   await run(
-    "npx",
-    ["wrangler", "d1", "execute", "DB", ...D1_FLAGS, "--yes", "--command", seedSql],
+    WRANGLER,
+    ["d1", "execute", "DB", ...D1_FLAGS, "--yes", "--command", seedSql],
     { cwd: WORKER_DIR },
   );
 
@@ -216,17 +237,17 @@ async function main() {
   );
 
   console.log("starting signer gateway (MOCK=1) and facade worker…");
-  const signer = start("npx", ["tsx", "src/index.ts"], {
+  const signer = start(TSX, ["src/index.ts"], {
     cwd: SIGNER_DIR,
     env: { ...process.env, MOCK: "1", PORT: String(SIGNER_PORT), SIGNER_TOKEN },
   });
-  const vendor = start("npx", ["tsx", "src/index.ts"], {
+  const vendor = start(TSX, ["src/index.ts"], {
     cwd: SIGNER_DIR,
     env: { ...process.env, MOCK: "1", PORT: String(VENDOR_PORT), SIGNER_TOKEN },
   });
   const worker = start(
-    "npx",
-    ["wrangler", "dev", "--port", String(WORKER_PORT), "--persist-to", STATE_DIR],
+    WRANGLER,
+    ["dev", "--port", String(WORKER_PORT), "--persist-to", STATE_DIR],
     { cwd: WORKER_DIR },
   );
 
