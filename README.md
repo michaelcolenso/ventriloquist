@@ -17,10 +17,11 @@ The full technical specification is in
 | Velocity engine: velocity, acceleration, lifecycle stage, saturation, actionability, breakout detection | working, tested | `worker/src/velocity/` |
 | Comment mining + sentiment (deterministic clustering, persisted backlog) | working, tested | `worker/src/velocity/ideas.ts` |
 | 7 cron jobs (watchlist, Creative Center, cohort, own account, Studio, session, signer canary) | implemented | `worker/src/cron/` |
-| Queued posting path (cap, spacing, R2 check, halt-on-failure, callbacks) | working | `worker/src/mcp/tools/posting.ts`, `worker/src/jobs/` |
+| Queued posting path (cap, spacing, R2 check, halt-on-failure, callbacks, idempotent dispatch) | working | `worker/src/mcp/tools/posting.ts`, `worker/src/jobs/` |
 | Self-hosted signer gateway (Puppeteer pool, dual strategy, mock mode) | working (mock verified; live path needs real Chromium + TikTok reachability) | `signer/` |
-| Playwright posting worker (session custody, pacing, Studio scrape hook) | implemented (upload flow unverified against live Studio) | `vps-agent/` |
-| End-to-end smoke test through the MCP transport, incl. kill-the-signer failover | passing, 40/40 | `scripts/smoke.mjs` |
+| Playwright posting worker (session custody, pacing, idempotent jobs, R2 artifact upload, Studio scrape) | implemented (upload flow unverified against live Studio) | `vps-agent/` |
+| End-to-end smoke test through the MCP transport, incl. kill-the-signer failover and admin-auth checks | passing, 43/43 | `scripts/smoke.mjs` |
+| CI (typecheck, tests, smoke) + weekly D1 export to R2 | configured | `.github/workflows/` |
 
 Not built: the pure-Python signer prototype, Whisper transcription on the VPS,
 and the 50-account cohort curation pass (see
@@ -87,6 +88,14 @@ Design notes that matter in practice:
   providers are skipped and only free paths run; `tt_system_status` says so.
 - **Posting is structurally throttled.** The cap and spacing are enforced before
   the job reaches the queue, and two consecutive failures halt posting.
+- **RED dispatch is idempotent.** A queue retry replays the recorded outcome for
+  a `job_id` instead of posting twice; rendered artifacts go to R2 and the key
+  travels back in the job callback.
+- **Admin and callbacks are authenticated.** `/admin/*` needs `ADMIN_TOKEN` and
+  job callbacks need `FACADE_CALLBACK_TOKEN`; both fail closed when unset.
+- **Operator alerts go to Telegram.** Posting halt, breaker trips, stale
+  sessions, failed scrapes and failed callbacks all raise a message when the
+  bot token and chat id are configured.
 
 ## Repository layout
 
@@ -94,8 +103,9 @@ Design notes that matter in practice:
 worker/      Cloudflare Worker: MCP server, routing, D1 schema, crons, queue consumer
 signer/      self-hosted signer gateway (Puppeteer + TikTok's web SDK), with MOCK=1 fixtures
 vps-agent/   Playwright posting worker + AMBER Studio scrape + session custody
-scripts/     smoke.mjs (end-to-end), seed-cohort.mjs
+scripts/     smoke.mjs (end-to-end), draft-cohort.mjs + seed-cohort.mjs
 docs/        decisions.md (spec decisions + deviations), runbook.md (deploy + ops)
+.github/     CI (typecheck, tests, smoke) and the weekly D1 backup workflow
 ```
 
 ## Spec phases
@@ -114,6 +124,9 @@ See [`docs/runbook.md`](./docs/runbook.md).
 
 - Signing breaks periodically. Budget the 2-4 hours/month from the spec; the
   gateway's `strategy` field tells you when it has degraded to the in-page path.
+- With no paid vendor key provisioned, every live read depends on the signer;
+  the failover chain is verified against a mock vendor only. Add a key before
+  treating the fallback as production coverage.
 - RED posting violates TikTok's ToS. The mitigation here is low volume, human
   pacing, a dedicated session, and halting on the second consecutive failure -
   not immunity.

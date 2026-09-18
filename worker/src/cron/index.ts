@@ -10,7 +10,9 @@ import {
   buildSoundSnapshotStatements,
   buildVideoSnapshotStatements,
 } from "../storage/snapshots";
+import { writeStudioAnalytics } from "../storage/analytics";
 import { compactSnapshots } from "../velocity/engine";
+import { sendAlert } from "../lib/alerts";
 
 export interface CronResult {
   summary: string;
@@ -90,6 +92,13 @@ async function signerCanary(ctx: AppContext): Promise<CronResult> {
     const { tripped, health } = await ctx.backends.health.recordFailure("signer", ctx.now, message, {
       countsTowardBreaker,
     });
+    if (tripped) {
+      await sendAlert(
+        ctx.env,
+        `signer circuit breaker tripped: ${message}. Reads now depend on the configured fallback providers.`,
+        { fetcher: ctx.fetcher, logger: ctx.logger },
+      );
+    }
     return {
       summary: `signer canary failed: ${message}`,
       data: { tripped, consecutiveFailures: health.consecutiveFailures, circuitOpenUntil: health.circuitOpenUntil },
@@ -316,16 +325,38 @@ async function snapshotOwnAccount(ctx: AppContext): Promise<CronResult> {
 /** AMBER work happens on the VPS; the Worker only schedules it. */
 async function studioDeepScrape(ctx: AppContext): Promise<CronResult> {
   const dispatched = await callPostingWorker(ctx, "/studio-scrape", { requested_at: ctx.now });
+  if (!dispatched.ok) {
+    await sendAlert(ctx.env, `studio deep scrape failed: ${dispatched.detail}`, {
+      fetcher: ctx.fetcher,
+      logger: ctx.logger,
+    });
+    return {
+      summary: `studio deep scrape not dispatched: ${dispatched.detail}`,
+      data: dispatched,
+    };
+  }
+  const rows = Array.isArray(dispatched.body?.rows) ? (dispatched.body.rows as unknown[]) : [];
+  const written = await writeStudioAnalytics(ctx.env.DB, rows);
   return {
-    summary: dispatched.ok
-      ? "studio deep scrape dispatched to the VPS Playwright worker"
-      : `studio deep scrape not dispatched: ${dispatched.detail}`,
-    data: dispatched,
+    summary: `studio deep scrape: ${written} analytics rows written from ${rows.length} scraped rows`,
+    data: {
+      ok: dispatched.ok,
+      status: dispatched.status,
+      detail: dispatched.detail,
+      scraped: rows.length,
+      written,
+    },
   };
 }
 
 async function weeklyMaintenance(ctx: AppContext): Promise<CronResult> {
   const refresh = await callPostingWorker(ctx, "/session/refresh", { requested_at: ctx.now });
+  if (refresh.ok && refresh.body?.stale === true) {
+    await sendAlert(ctx.env, `posting session is stale: ${String(refresh.body.detail ?? "rotate it")}`, {
+      fetcher: ctx.fetcher,
+      logger: ctx.logger,
+    });
+  }
   const compaction = await compactSnapshots(ctx.env.DB, { now: ctx.now, olderThanDays: 90 });
   const lastPost = await ctx.env.DB.prepare(
     `SELECT MAX(posted_at) AS last_posted FROM post_jobs WHERE status = 'posted'`,
@@ -349,11 +380,11 @@ async function weeklyMaintenance(ctx: AppContext): Promise<CronResult> {
   };
 }
 
-async function callPostingWorker(
+export async function callPostingWorker(
   ctx: AppContext,
   path: string,
   body: Record<string, unknown>,
-): Promise<{ ok: boolean; detail: string; status?: number }> {
+): Promise<{ ok: boolean; detail: string; status?: number; body?: Record<string, unknown> }> {
   if (!ctx.env.POSTING_WORKER_URL) {
     return { ok: false, detail: "POSTING_WORKER_URL is not configured" };
   }
@@ -364,16 +395,16 @@ async function callPostingWorker(
         method: "POST",
         headers: {
           "content-type": "application/json",
-          ...(ctx.env.POSTING_WORKER_TOKEN
-            ? { authorization: `Bearer ${ctx.env.POSTING_WORKER_TOKEN}` }
-            : {}),
+          "x-facade-call-token": ctx.env.POSTING_WORKER_TOKEN ?? "",
         },
         body: JSON.stringify(body),
       },
     );
+    const parsed = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     return {
       ok: response.ok,
       status: response.status,
+      body: parsed,
       detail: response.ok ? "ok" : `HTTP ${response.status}`,
     };
   } catch (error) {

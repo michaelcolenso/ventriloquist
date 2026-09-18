@@ -88,6 +88,29 @@ export const systemStatusTool = defineTool({
     if (!ctx.env.SIGNER_GATEWAY_URL) {
       warnings.push("SIGNER_GATEWAY_URL is unset: the self-hosted path is disabled in this deployment.");
     }
+    if (!ctx.env.SCRAPEBADGER_API_KEY) {
+      warnings.push(
+        "SCRAPEBADGER_API_KEY is unset: the paid fallback is disabled, so read availability depends entirely on the signer.",
+      );
+    }
+    if (ctx.env.SCRAPECREATORS_API_KEY) {
+      warnings.push(
+        "ScrapeCreators is enabled but its endpoint contract is unverified against live responses; verify it before relying on it.",
+      );
+    }
+    if (!ctx.env.ADMIN_TOKEN) {
+      warnings.push("ADMIN_TOKEN is unset: /admin/* fails closed and rejects every request.");
+    }
+    if (!ctx.env.FACADE_CALLBACK_TOKEN) {
+      warnings.push(
+        "FACADE_CALLBACK_TOKEN is unset: job callbacks are rejected, so finished posts never leave the running state.",
+      );
+    }
+    if (!(ctx.env.ALERT_TELEGRAM_BOT_TOKEN && ctx.env.ALERT_TELEGRAM_CHAT_ID)) {
+      warnings.push("Telegram alerts are unconfigured: halts and breaker trips are log-only.");
+    }
+
+    const unverified: string[] = ["scrapecreators_contract", "whisper_transcript_fallback"];
 
     return {
       summary: `Providers: ${providers.length} configured, ${
@@ -111,6 +134,17 @@ export const systemStatusTool = defineTool({
           post_jobs: jobs,
         },
         posting: { consecutive_failures: failures, halted: failures >= 2 },
+        configuration: {
+          signer_enabled: Boolean(ctx.env.SIGNER_GATEWAY_URL),
+          scrapebadger_enabled: Boolean(ctx.env.SCRAPEBADGER_API_KEY),
+          scrapecreators_enabled: Boolean(ctx.env.SCRAPECREATORS_API_KEY),
+          admin_auth_configured: Boolean(ctx.env.ADMIN_TOKEN),
+          callback_auth_configured: Boolean(ctx.env.FACADE_CALLBACK_TOKEN),
+          alerts_configured: Boolean(
+            ctx.env.ALERT_TELEGRAM_BOT_TOKEN && ctx.env.ALERT_TELEGRAM_CHAT_ID,
+          ),
+          unverified,
+        },
       },
       warnings: warnings.length ? warnings : undefined,
       meta: { provider: "worker", source: "ventriloquist" },

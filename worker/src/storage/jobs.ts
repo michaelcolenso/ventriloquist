@@ -215,6 +215,7 @@ export async function updateJobStatus(
   jobId: string,
   patch: {
     status?: string;
+    videoR2Key?: string | null;
     tiktokUrl?: string | null;
     error?: string | null;
     postedAt?: number | null;
@@ -231,6 +232,10 @@ export async function updateJobStatus(
   if (patch.tiktokUrl !== undefined) {
     sets.push("tiktok_url = ?");
     values.push(patch.tiktokUrl);
+  }
+  if (patch.videoR2Key !== undefined) {
+    sets.push("video_r2_key = ?");
+    values.push(patch.videoR2Key);
   }
   if (patch.error !== undefined) {
     sets.push("error = ?");

@@ -7,6 +7,9 @@
  * route the hook still captures it and only the parser needs updating.
  */
 
+import { chromium, type Response } from "playwright-core";
+import { loadPostingCookies, type SessionCustodyOptions } from "./sessions";
+
 export interface StudioAnalyticsRow {
   video_id: string;
   watch_time_seconds: number | null;
@@ -15,6 +18,81 @@ export interface StudioAnalyticsRow {
   traffic_sources: unknown;
   retention: unknown;
   captured_at: number;
+}
+
+export const STUDIO_ANALYTICS_URL =
+  "https://www.tiktok.com/tiktokstudio/analytics?from=web&lang=en";
+
+/** Studio route names drift; match the family rather than one exact path. */
+const ANALYTICS_RESPONSE_PATTERN = /(analytics|dashboard|overview|item_list|video_(list|stats))/i;
+
+export interface StudioScrapeOptions extends SessionCustodyOptions {
+  executablePath: string;
+  userDataDir: string;
+  headless: boolean;
+  timeoutMs: number;
+  /** Safety valve so a chatty page cannot buffer unbounded responses. */
+  maxCaptures?: number;
+}
+
+/**
+ * Drive the logged-in Studio analytics page with a burner session and capture
+ * whatever JSON the page fetches. Parsing stays in
+ * `parseStudioAnalyticsPayload`, so a TikTok route rename costs a selector or
+ * URL-pattern tweak here, not a rewrite of the data mapping.
+ */
+export async function scrapeStudioAnalytics(
+  options: StudioScrapeOptions,
+): Promise<StudioAnalyticsRow[]> {
+  const cookies = await loadPostingCookies(options);
+  const maxCaptures = options.maxCaptures ?? 40;
+  const captured: unknown[] = [];
+
+  const context = await chromium.launchPersistentContext(options.userDataDir, {
+    executablePath: options.executablePath,
+    headless: options.headless,
+    viewport: { width: 1366, height: 900 },
+    args: ["--disable-blink-features=AutomationControlled"],
+  });
+
+  const capture = async (response: Response): Promise<void> => {
+    if (captured.length >= maxCaptures) return;
+    if (!ANALYTICS_RESPONSE_PATTERN.test(response.url())) return;
+    const contentType = response.headers()["content-type"] ?? "";
+    if (!contentType.includes("json")) return;
+    try {
+      captured.push(await response.json());
+    } catch {
+      /* redirects and aborted requests are expected; ignore them */
+    }
+  };
+  context.on("response", (response) => void capture(response));
+
+  try {
+    const page = context.pages()[0] ?? (await context.newPage());
+    await page.goto(STUDIO_ANALYTICS_URL, { timeout: options.timeoutMs });
+    await page.waitForTimeout(3_000);
+    for (let scroll = 0; scroll < 3; scroll += 1) {
+      await page.mouse.wheel(0, 1_200);
+      await page.waitForTimeout(1_500);
+    }
+    await page.waitForTimeout(2_000);
+  } finally {
+    await context.close();
+  }
+
+  const capturedAt = Math.floor(Date.now() / 1000);
+  const seen = new Set<string>();
+  const rows: StudioAnalyticsRow[] = [];
+  for (const payload of captured) {
+    for (const row of parseStudioAnalyticsPayload(payload, capturedAt)) {
+      const key = `${row.video_id}:${row.captured_at}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(row);
+    }
+  }
+  return rows;
 }
 
 export function parseStudioAnalyticsPayload(

@@ -22,7 +22,8 @@ the spec survivable. The response says which strategy ran, so the ledger shows
 when strategy 1 stops working.
 
 The pure-Python signer prototype the spec recommends for Phase 2 downtime is
-not started.
+not started. With no paid vendor key provisioned yet, this is the largest
+remaining availability risk: a long signer outage is a read outage.
 
 ## 2. Paid fallback vendor: ScrapeBadger primary, ScrapeCreators emergency
 
@@ -31,6 +32,13 @@ contract: endpoint paths, parameters and response fields were taken from
 ScrapeBadger's published OpenAPI document
 (`docs.scrapebadger.com/openapi-tiktok.json`, fetched 2026-09-13), and
 `worker/test/scrapebadger-contract.test.ts` pins those shapes.
+
+**Current deployment:** no vendor key is provisioned yet, so the paid providers
+are disabled by configuration and every live read depends on the signer plus
+the free Creative Center path. `tt_system_status` reports this explicitly. The
+failover chain is exercised end to end by `pnpm smoke` against a mock vendor;
+before relying on the paid path in production, add the key and repeat the
+contract test against a live response.
 
 ScrapeCreators is wired through the same adapter with a different base URL and
 only activates when `SCRAPECREATORS_API_KEY` is set. **Unverified:** its
@@ -84,3 +92,21 @@ Two deliberate choices:
   TikTok's own caption track and caches it in `transcripts`. The Whisper
   fallback needs a download + transcribe step on the VPS, and the tool says so
   explicitly instead of implying coverage.
+
+## Operational additions made during the live-readiness pass
+
+- **Admin auth fails closed.** `/admin/*` requires `ADMIN_TOKEN` and
+  `/admin/job-callback` requires `FACADE_CALLBACK_TOKEN`; an unset token denies
+  the route instead of exposing budget, cohort, watchlist and breaker controls.
+- **RED dispatch is idempotent.** The VPS records every claimed `job_id` on
+  disk and replays the stored outcome, so a Cloudflare Queues retry cannot post
+  the same video twice. A claim older than 30 minutes is treated as a crashed
+  run and may be retried.
+- **Rendered artifacts land in R2.** The VPS uploads `render_and_post` output
+  through scoped S3 credentials and reports `video_r2_key` in the callback;
+  queued posts download the same way, with `R2_PUBLIC_BASE` as a read fallback.
+- **Alerts go to Telegram.** Posting halt, signer breaker trips, stale or
+  unreadable posting sessions, failed Studio scrapes and failed job callbacks
+  raise a Telegram message when the bot token and chat id are configured.
+- **Backups.** A scheduled GitHub Actions workflow exports D1 to R2; a restore
+  into a scratch database is part of the go-live checklist.

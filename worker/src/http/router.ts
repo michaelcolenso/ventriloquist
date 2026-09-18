@@ -62,6 +62,9 @@ export async function handleRequest(
   }
 
   if (url.pathname.startsWith("/admin/")) {
+    if (!authorizeAdmin(request, env)) {
+      return json({ error: "unauthorized" }, 401);
+    }
     return handleAdmin(request, env, ctx, url);
   }
 
@@ -73,6 +76,19 @@ function authorize(request: Request, env: Env): boolean {
   const header = request.headers.get("authorization") ?? "";
   const token = header.replace(/^Bearer\s+/i, "").trim();
   return token === env.MCP_AUTH_TOKEN;
+}
+
+/**
+ * Admin routes mutate state (budget, cohort, watchlist, breakers), so they
+ * fail closed: an unset ADMIN_TOKEN denies every request rather than exposing
+ * the deployment. This is the one place where "no config" is not "no auth".
+ */
+export function authorizeAdmin(request: Request, env: Env): boolean {
+  const expected = env.ADMIN_TOKEN;
+  if (!expected) return false;
+  const header = request.headers.get("authorization") ?? "";
+  const token = header.replace(/^Bearer\s+/i, "").trim();
+  return token.length > 0 && token === expected;
 }
 
 async function handleMcp(

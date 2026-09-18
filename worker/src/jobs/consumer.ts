@@ -1,8 +1,14 @@
 import type { Env } from "../env";
 import { createLogger } from "../lib/logger";
 import { errorMessage } from "../lib/errors";
-import { getPostJob, updateJobStatus, type PostJobMessage } from "../storage/jobs";
+import {
+  consecutivePostFailures,
+  getPostJob,
+  updateJobStatus,
+  type PostJobMessage,
+} from "../storage/jobs";
 import { newId } from "../lib/ids";
+import { sendAlert } from "../lib/alerts";
 
 export interface QueueContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -78,7 +84,6 @@ export async function consumeQueue(
             hashtags: job.hashtags ? JSON.parse(job.hashtags) : [],
             scheduled_at: job.scheduled_at,
             render_spec: job.render_spec ? JSON.parse(job.render_spec) : null,
-            callback_token: env.POSTING_WORKER_TOKEN ?? "",
           }),
         },
       );
@@ -116,10 +121,21 @@ export async function consumeQueue(
 }
 
 /** Callback endpoint the VPS worker uses to report a finished post. */
+export function authorizeJobCallback(request: Request, env: Env): boolean {
+  const expected = env.FACADE_CALLBACK_TOKEN;
+  if (!expected) return false;
+  const header = request.headers.get("authorization") ?? "";
+  const token = header.replace(/^Bearer\s+/i, "").trim();
+  return token.length > 0 && token === expected;
+}
+
 export async function handleJobCallback(
   request: Request,
   env: Env,
 ): Promise<Response> {
+  if (!authorizeJobCallback(request, env)) {
+    return json({ error: "unauthorized" }, 401);
+  }
   const body = (await request.json()) as {
     job_id?: string;
     status?: string;
@@ -135,12 +151,23 @@ export async function handleJobCallback(
     body.job_id,
     {
       status: body.status ?? "posted",
+      videoR2Key: body.video_r2_key ?? null,
       tiktokUrl: body.tiktok_url ?? null,
       error: body.error ?? null,
       postedAt: body.posted_at ?? (body.status === "posted" ? now : null),
     },
     now,
   );
+  if ((body.status ?? "posted") === "failed") {
+    const failures = await consecutivePostFailures(env.DB, now);
+    if (failures >= 2) {
+      await sendAlert(
+        env,
+        `posting halted: ${failures} consecutive failures (last: ${body.error ?? "unknown"})`,
+        { logger: createLogger("warn", { component: "alerts" }) },
+      );
+    }
+  }
   return json({ ok: true, job_id: body.job_id });
 }
 

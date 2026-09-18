@@ -52,7 +52,10 @@ const SIGNER_PORT = Number(process.env.SMOKE_SIGNER_PORT ?? 8788);
 // loss of every mock at once.
 const VENDOR_PORT = Number(process.env.SMOKE_VENDOR_PORT ?? 8789);
 const SIGNER_TOKEN = "smoke-token";
+const ADMIN_TOKEN = "smoke-admin-token";
+const CALLBACK_TOKEN = "smoke-callback-token";
 const MCP_URL = `http://127.0.0.1:${WORKER_PORT}/mcp`;
+const ADMIN_HEADERS = { authorization: `Bearer ${ADMIN_TOKEN}` };
 
 const checks = [];
 let failures = 0;
@@ -231,6 +234,8 @@ async function main() {
       `OWN_ACCOUNT_HANDLE="nobodynamed"`,
       `DAILY_PAID_BUDGET_USD="3"`,
       `PROVIDER_TIMEOUT_MS="4000"`,
+      `ADMIN_TOKEN="${ADMIN_TOKEN}"`,
+      `FACADE_CALLBACK_TOKEN="${CALLBACK_TOKEN}"`,
       "",
     ].join("\n"),
     "utf8",
@@ -412,7 +417,30 @@ async function main() {
       status.text.split("\n").filter((line) => line.includes("cohort")).join(" | "),
     );
 
-    const ledger = await fetch(`http://127.0.0.1:${WORKER_PORT}/admin/ledger?days=1`).then((r) => r.json());
+    const anonymousAdmin = await fetch(
+      `http://127.0.0.1:${WORKER_PORT}/admin/ledger?days=1`,
+    );
+    check("admin routes reject anonymous callers", anonymousAdmin.status === 401);
+    const anonymousCallback = await fetch(
+      `http://127.0.0.1:${WORKER_PORT}/admin/job-callback`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ job_id: "smoke-forged", status: "posted" }),
+      },
+    );
+    check("job callbacks reject forged reports", anonymousCallback.status === 401);
+    check(
+      "system status reports the auth/alert configuration",
+      status.data?.configuration?.admin_auth_configured === true &&
+        status.data?.configuration?.callback_auth_configured === true &&
+        status.data?.configuration?.alerts_configured === false,
+      JSON.stringify(status.data?.configuration),
+    );
+
+    const ledger = await fetch(`http://127.0.0.1:${WORKER_PORT}/admin/ledger?days=1`, {
+      headers: ADMIN_HEADERS,
+    }).then((r) => r.json());
     check("cost ledger recorded provider events", (ledger.reliability ?? []).length > 0);
     check(
       "free providers cost $0 in the ledger",
@@ -460,9 +488,9 @@ async function main() {
       skipped.text.split("\n").find((line) => line.startsWith("meta:")),
     );
 
-    const spend = await fetch(`http://127.0.0.1:${WORKER_PORT}/admin/ledger?days=1`).then((r) =>
-      r.json(),
-    );
+    const spend = await fetch(`http://127.0.0.1:${WORKER_PORT}/admin/ledger?days=1`, {
+      headers: ADMIN_HEADERS,
+    }).then((r) => r.json());
     const paidRow = (spend.reliability ?? []).find((row) => row.provider === "scrapebadger");
     const signerFailures = (spend.reliability ?? [])
       .filter((row) => row.provider === "signer")

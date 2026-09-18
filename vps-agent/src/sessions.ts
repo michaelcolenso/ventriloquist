@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -82,4 +82,77 @@ export function describeSession(cookies: SessionCookie[]): {
     names: cookies.map((cookie) => cookie.name),
     has_sessionid: cookies.some((cookie) => cookie.name === "sessionid"),
   };
+}
+
+export interface SessionStatus extends ReturnType<typeof describeSession> {
+  stale: boolean;
+  detail: string;
+  file_age_days: number | null;
+  expires_at: number | null;
+}
+
+/**
+ * Session staleness detection (spec 7.5). Re-login stays manual; this only
+ * decides whether the weekly cron should tell the operator to rotate.
+ */
+export function evaluateSession(
+  cookies: SessionCookie[],
+  options: { fileMtimeMs: number | null; nowMs?: number; maxAgeDays?: number },
+): SessionStatus {
+  const nowMs = options.nowMs ?? Date.now();
+  const maxAgeDays = options.maxAgeDays ?? 30;
+  const base = describeSession(cookies);
+  const fileAgeDays =
+    options.fileMtimeMs === null ? null : (nowMs - options.fileMtimeMs) / 86_400_000;
+
+  const expiries = cookies
+    .map((cookie) => cookie.expires)
+    .filter((value): value is number => typeof value === "number" && value > 0);
+  const soonestExpiry = expiries.length > 0 ? Math.min(...expiries) : null;
+  const expired = expiries.find((value) => value * 1000 <= nowMs);
+
+  if (!base.has_sessionid) {
+    return { ...base, stale: true, detail: "sessionid cookie is missing", file_age_days: fileAgeDays, expires_at: soonestExpiry };
+  }
+  if (expired !== undefined) {
+    return {
+      ...base,
+      stale: true,
+      detail: `a session cookie expired at ${new Date(expired * 1000).toISOString()}`,
+      file_age_days: fileAgeDays,
+      expires_at: soonestExpiry,
+    };
+  }
+  if (fileAgeDays !== null && fileAgeDays > maxAgeDays) {
+    return {
+      ...base,
+      stale: true,
+      detail: `sealed session file is ${fileAgeDays.toFixed(1)} days old (max ${maxAgeDays}); re-login and reseal`,
+      file_age_days: fileAgeDays,
+      expires_at: soonestExpiry,
+    };
+  }
+  return {
+    ...base,
+    stale: false,
+    detail: "session looks usable",
+    file_age_days: fileAgeDays,
+    expires_at: soonestExpiry,
+  };
+}
+
+export async function inspectSession(
+  options: SessionCustodyOptions & { maxAgeDays?: number },
+): Promise<SessionStatus> {
+  const cookies = await loadPostingCookies(options);
+  let fileMtimeMs: number | null = null;
+  try {
+    fileMtimeMs = (await stat(options.sessionFile)).mtimeMs;
+  } catch {
+    fileMtimeMs = null;
+  }
+  return evaluateSession(cookies, {
+    fileMtimeMs,
+    ...(options.maxAgeDays !== undefined ? { maxAgeDays: options.maxAgeDays } : {}),
+  });
 }

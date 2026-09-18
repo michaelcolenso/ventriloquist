@@ -17,6 +17,13 @@ export interface Env {
   DAILY_PAID_BUDGET_USD?: string;
   SCRAPEBADGER_USD_PER_CALL?: string;
   MCP_AUTH_TOKEN?: string;
+  /** Required for /admin/*; admin routes fail closed when this is unset. */
+  ADMIN_TOKEN?: string;
+  /** Shared secret the VPS posting worker uses on /admin/job-callback. */
+  FACADE_CALLBACK_TOKEN?: string;
+  /** Telegram alerts: posting halt, breaker trips, stale posting session. */
+  ALERT_TELEGRAM_BOT_TOKEN?: string;
+  ALERT_TELEGRAM_CHAT_ID?: string;
   DEFAULT_REGION?: string;
   OWN_ACCOUNT_HANDLE?: string;
   POSTING_WORKER_URL?: string;

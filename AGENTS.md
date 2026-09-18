@@ -8,7 +8,7 @@ Ventriloquist is a pnpm workspace with three TypeScript packages:
 - `signer/` - Fastify signer gateway (Puppeteer), with `src/` and `test/`
 - `vps-agent/` - Playwright posting worker, with `src/` and `test/`
 
-Shared assets live in `scripts/` (`smoke.mjs`, `seed-cohort.mjs`) and `docs/` (`decisions.md`, `runbook.md`). The technical spec is `ventriloquist-tiktok-mcp-spec.md`.
+Shared assets live in `scripts/` (`smoke.mjs`, `draft-cohort.mjs`, `seed-cohort.mjs`) and `docs/` (`decisions.md`, `runbook.md`). CI and the weekly D1 backup workflow live in `.github/workflows/`. The technical spec is `ventriloquist-tiktok-mcp-spec.md`.
 
 ## Build, Test, and Development Commands
 
