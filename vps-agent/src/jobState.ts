@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-export type JobStatus = "running" | "posted" | "failed" | "queued";
+export type JobStatus = "running" | "posted" | "failed" | "queued" | "dry_run";
 
 export interface JobRecord {
   status: JobStatus;

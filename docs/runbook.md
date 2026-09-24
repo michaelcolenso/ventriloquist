@@ -123,7 +123,10 @@ but this is the signal to spend maintenance time, and `strategy` says why.
    `post_jobs`.
 5. `POSTING_DRY_RUN=1` first: the worker walks the upload flow and stops before
    submitting. Confirm the selectors in `vps-agent/src/uploader.ts` still match
-   TikTok Studio, then set `POSTING_DRY_RUN=0`.
+   TikTok Studio (`tt_job_status` reports `dry_run`, not `posted`, and the dry
+   run does not consume the daily cap), then set `POSTING_DRY_RUN=0`. The VPS
+   remembers every job id it has run, so a dry-run job id is spent: queue a
+   new job for the real post.
 6. `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`:
    scoped R2 S3 credentials. Rendered artifacts are uploaded here and queued
    artifacts are downloaded with the same credentials; `R2_PUBLIC_BASE` stays a

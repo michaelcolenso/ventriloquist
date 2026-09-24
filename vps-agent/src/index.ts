@@ -3,7 +3,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAlertSender } from "./alerts";
-import { buildApp, type JobBody, type JobOutcome } from "./app";
+import { buildApp, outcomeStatus, type JobBody, type JobOutcome } from "./app";
 import { JobStateStore } from "./jobState";
 import { R2Client, r2ConfigFromEnv, renderArtifactKey } from "./r2";
 import { inspectSession, type SessionCustodyOptions } from "./sessions";
@@ -124,7 +124,7 @@ async function executeJob(body: JobBody): Promise<JobOutcome> {
     });
 
     return {
-      status: result.skipped ? "queued" : result.ok ? "posted" : "failed",
+      status: outcomeStatus(result, DRY_RUN),
       tiktokUrl: result.tiktokUrl,
       videoR2Key,
       error: result.ok ? null : result.detail,
