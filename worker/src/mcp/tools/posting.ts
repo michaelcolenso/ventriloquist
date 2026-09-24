@@ -3,7 +3,7 @@ import { newId } from "../../lib/ids";
 import {
   DEFAULT_POSTING_POLICY,
   MAX_CAPTION_LENGTH,
-  consecutivePostFailures,
+  postingHalt,
   getPostJob,
   insertPostJob,
   postingContext,
@@ -55,12 +55,11 @@ export const queuePostTool = defineTool({
       context,
     );
 
-    const failures = await consecutivePostFailures(ctx.env.DB, ctx.now);
-    const halted = failures >= 2;
+    const { failures, halted } = await postingHalt(ctx.env, ctx.now);
     if (halted) {
       validation.ok = false;
       validation.errors.push(
-        `${failures} consecutive post failures in the last 24h: posting is halted automatically (spec 7.4). Investigate and clear the halt before queueing again.`,
+        `${failures} consecutive post failures in the last 24h: posting is halted automatically (spec 7.4). Investigate, then clear it with POST /admin/posting/clear-halt before queueing again.`,
       );
     }
 
@@ -129,7 +128,7 @@ export const jobStatusTool = defineTool({
   risk: "GREEN",
   title: "Job status",
   summary:
-    "Status of a queued/running/posted/failed publish job, including the live TikTok URL once posted.",
+    "Status of a queued/running/posted/failed/dry_run/held publish job, including the live TikTok URL once posted.",
   inputSchema: {
     job_id: z.string().min(1),
   },
@@ -143,7 +142,7 @@ export const jobStatusTool = defineTool({
         meta: { provider: "d1", source: "ventriloquist" },
       };
     }
-    const failures = await consecutivePostFailures(ctx.env.DB, ctx.now);
+    const { failures, halted } = await postingHalt(ctx.env, ctx.now);
     return {
       summary: `Job ${job.job_id}: ${job.status}${
         job.tiktok_url ? ` -> ${job.tiktok_url}` : ""
@@ -163,7 +162,7 @@ export const jobStatusTool = defineTool({
         attempts: job.attempts,
         created_at: job.created_at,
         consecutive_failures: failures,
-        posting_halted: failures >= 2,
+        posting_halted: halted,
       },
       meta: { provider: "d1", source: "ventriloquist" },
     };
@@ -203,8 +202,7 @@ export const renderAndPostTool = defineTool({
       context,
     );
 
-    const failures = await consecutivePostFailures(ctx.env.DB, ctx.now);
-    const halted = failures >= 2;
+    const { failures, halted } = await postingHalt(ctx.env, ctx.now);
     if (halted) {
       validation.ok = false;
       validation.errors.push(

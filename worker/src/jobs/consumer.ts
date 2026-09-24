@@ -2,13 +2,25 @@ import type { Env } from "../env";
 import { createLogger } from "../lib/logger";
 import { errorMessage } from "../lib/errors";
 import {
-  consecutivePostFailures,
   getPostJob,
+  HELD_STATUS,
+  isTerminalStatus,
+  postingHalt,
   updateJobStatus,
   type PostJobMessage,
 } from "../storage/jobs";
 import { newId } from "../lib/ids";
 import { sendAlert } from "../lib/alerts";
+
+/** What the VPS answers on /jobs; a duplicate carries its stored record. */
+interface DispatchResponse {
+  accepted?: boolean;
+  duplicate?: boolean;
+  status?: string;
+  tiktok_url?: string | null;
+  video_r2_key?: string | null;
+  error?: string | null;
+}
 
 export interface QueueContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -43,7 +55,28 @@ export async function consumeQueue(
       message.ack();
       continue;
     }
-    if (job.status === "posted") {
+    if (isTerminalStatus(job.status) || job.status === HELD_STATUS) {
+      logger.info("post job already settled; acking", { jobId, status: job.status });
+      message.ack();
+      continue;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+
+    // Spec 7.4: a halt also stops jobs that were queued before it tripped.
+    const halt = await postingHalt(env, now);
+    if (halt.halted) {
+      await updateJobStatus(
+        env.DB,
+        jobId,
+        {
+          status: HELD_STATUS,
+          error: `held: posting is halted after ${halt.failures} consecutive failures; clear the halt and re-queue`,
+          unlessTerminal: true,
+        },
+        now,
+      );
+      logger.warn("posting halted; job held", { jobId, failures: halt.failures });
       message.ack();
       continue;
     }
@@ -57,15 +90,24 @@ export async function consumeQueue(
           error:
             "POSTING_WORKER_URL is not configured: the VPS Playwright worker is not reachable, so the job cannot be executed.",
           incrementAttempts: true,
+          unlessTerminal: true,
         },
-        Math.floor(Date.now() / 1000),
+        now,
       );
       logger.error("no posting worker configured", { jobId });
       message.ack();
       continue;
     }
 
-    const now = Math.floor(Date.now() / 1000);
+    // Mark running before dispatch: the VPS callback for a fast failure can
+    // land before the dispatch response does, and must not be overwritten.
+    await updateJobStatus(
+      env.DB,
+      jobId,
+      { status: "running", error: null, incrementAttempts: true, unlessTerminal: true },
+      now,
+    );
+
     try {
       const response = await fetch(
         `${env.POSTING_WORKER_URL.replace(/\/$/, "")}/jobs`,
@@ -92,12 +134,22 @@ export async function consumeQueue(
         throw new Error(`posting worker returned HTTP ${response.status}`);
       }
 
-      await updateJobStatus(
-        env.DB,
-        jobId,
-        { status: "running", error: null, incrementAttempts: true },
-        now,
-      );
+      const dispatch = (await response.json().catch(() => ({}))) as DispatchResponse;
+      if (dispatch.duplicate && dispatch.status && isTerminalStatus(dispatch.status)) {
+        // The VPS already ran this job: adopt its record instead of "running".
+        await updateJobStatus(
+          env.DB,
+          jobId,
+          {
+            status: dispatch.status,
+            tiktokUrl: dispatch.tiktok_url ?? null,
+            videoR2Key: dispatch.video_r2_key ?? job.video_r2_key,
+            error: dispatch.error ?? null,
+          },
+          now,
+        );
+        logger.info("posting worker replayed a settled job", { jobId, status: dispatch.status });
+      }
       message.ack();
     } catch (error) {
       const detail = errorMessage(error);
@@ -108,7 +160,7 @@ export async function consumeQueue(
         {
           status: isLastAttempt ? "failed" : "queued",
           error: `dispatch failed: ${detail}`,
-          incrementAttempts: true,
+          unlessTerminal: true,
         },
         now,
       );
@@ -146,21 +198,24 @@ export async function handleJobCallback(
   };
   if (!body.job_id) return json({ error: "job_id required" }, 400);
   const now = Math.floor(Date.now() / 1000);
+  const status = body.status ?? "posted";
   await updateJobStatus(
     env.DB,
     body.job_id,
     {
-      status: body.status ?? "posted",
+      status,
       videoR2Key: body.video_r2_key ?? null,
       tiktokUrl: body.tiktok_url ?? null,
       error: body.error ?? null,
-      postedAt: body.posted_at ?? (body.status === "posted" ? now : null),
+      postedAt: body.posted_at ?? (status === "posted" ? now : null),
+      // An in-progress report never overwrites an outcome already recorded.
+      unlessTerminal: !isTerminalStatus(status),
     },
     now,
   );
-  if ((body.status ?? "posted") === "failed") {
-    const failures = await consecutivePostFailures(env.DB, now);
-    if (failures >= 2) {
+  if (status === "failed") {
+    const { failures, halted } = await postingHalt(env, now);
+    if (halted) {
       await sendAlert(
         env,
         `posting halted: ${failures} consecutive failures (last: ${body.error ?? "unknown"})`,

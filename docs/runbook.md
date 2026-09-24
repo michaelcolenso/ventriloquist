@@ -117,7 +117,8 @@ but this is the signal to spend maintenance time, and `strategy` says why.
    file in D1, in the Worker, or in logs; `GET /health` reports only cookie
    names and a count.
 2. `RENDER_COMMAND="uv run nbn render --story {story} --out {out}"` and
-   `NBN_REPO_DIR=/opt/nobodynamed-video`.
+   `NBN_REPO_DIR=/opt/nobodynamed-video`. The worker shell-quotes `{story}`
+   and `{out}` itself, so leave the placeholders unquoted in the template.
 3. `R2_PUBLIC_BASE` (or a signed-URL service) so artifacts can be downloaded.
 4. `FACADE_URL` + `FACADE_CALLBACK_TOKEN` so job outcomes land back in
    `post_jobs`.
@@ -173,6 +174,7 @@ do not pad it with guessed handles - a bad cohort measures nothing.
 | Provider health + breakers | `curl -s $FACADE/admin/providers -H "authorization: Bearer $ADMIN_TOKEN" \| jq` |
 | Clear a breaker after a fix | `curl -X POST "$FACADE/admin/providers/reset?provider=signer" -H "authorization: Bearer $ADMIN_TOKEN"` |
 | Signer reliability vs paid spend | `curl -s "$FACADE/admin/ledger?days=30" -H "authorization: Bearer $ADMIN_TOKEN" \| jq` |
+| Clear a posting halt after a fix | `curl -X POST $FACADE/admin/posting/clear-halt -H "authorization: Bearer $ADMIN_TOKEN" \| jq` |
 | Tighten today's paid budget | `curl -X POST $FACADE/admin/budget -H "authorization: Bearer $ADMIN_TOKEN" -d '{"daily_usd":1}'` |
 | Add cohort accounts | `node scripts/seed-cohort.mjs accounts.json` |
 
@@ -181,7 +183,7 @@ do not pad it with guessed handles - a bad cohort measures nothing.
 | `no_provider_available` on reads | `tt_system_status`; if the signer breaker is open, check `/health` on the gateway, then reset the breaker after a fix. |
 | Paid spend climbing | `/admin/ledger` shows which capability and provider; a healthy signer keeps cost at $0. |
 | Posts stuck `queued` | The facade consumer records dispatch failures in `post_jobs.error`; check `POSTING_WORKER_URL` reachability and the VPS worker log. |
-| Two consecutive post failures | Posting halts automatically. Fix the cause (session expiry, selector drift, Studio redesign) before clearing. |
+| Two consecutive post failures | Posting halts automatically, and jobs that come due while halted are marked `held` instead of dispatched. Fix the cause (session expiry, selector drift, Studio redesign), then `POST /admin/posting/clear-halt`. Held jobs are listed but stay held: re-queue them so cap and spacing are checked again. Dry runs neither trip nor clear a halt. |
 | Studio analytics empty | The daily AMBER scrape runs on the VPS; `tt_own_deep_analytics` reports the gap rather than guessing. |
 | No Telegram messages arriving | `tt_system_status` -> `configuration.alerts_configured`; the VPS logs "alert suppressed" when its token or chat id is missing. |
 | Duplicate concern after a queue retry | `POST /jobs` is idempotent per `job_id`; a replay returns `duplicate: true` with the stored outcome instead of posting again. |

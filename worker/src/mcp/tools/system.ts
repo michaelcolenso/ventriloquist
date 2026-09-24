@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { countRows } from "../../storage/snapshots";
-import { consecutivePostFailures } from "../../storage/jobs";
+import { postingHalt } from "../../storage/jobs";
 import { defineTool } from "../registry";
 
 /**
@@ -60,7 +60,7 @@ export const systemStatusTool = defineTool({
     }
 
     const budget = await ctx.backends.ledger.budgetState(ctx.now);
-    const failures = await consecutivePostFailures(ctx.env.DB, ctx.now);
+    const { failures, halted } = await postingHalt(ctx.env, ctx.now);
 
     const [hashtagSnapshots, videoSnapshots, soundSnapshots, watchlistSize, cohortSize, ideas, jobs] =
       await Promise.all([
@@ -82,7 +82,7 @@ export const systemStatusTool = defineTool({
         `Daily paid budget spent ($${budget.spentUSD.toFixed(4)}/$${budget.budgetUSD}): paid fallback is skipped and only free paths run.`,
       );
     }
-    if (failures >= 2) {
+    if (halted) {
       warnings.push(`Posting is halted after ${failures} consecutive failures.`);
     }
     if (!ctx.env.SIGNER_GATEWAY_URL) {
@@ -133,7 +133,7 @@ export const systemStatusTool = defineTool({
           content_ideas: ideas,
           post_jobs: jobs,
         },
-        posting: { consecutive_failures: failures, halted: failures >= 2 },
+        posting: { consecutive_failures: failures, halted },
         configuration: {
           signer_enabled: Boolean(ctx.env.SIGNER_GATEWAY_URL),
           scrapebadger_enabled: Boolean(ctx.env.SCRAPEBADGER_API_KEY),
