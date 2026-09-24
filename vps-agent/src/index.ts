@@ -6,6 +6,7 @@ import { createAlertSender } from "./alerts";
 import { buildApp, outcomeStatus, type JobBody, type JobOutcome } from "./app";
 import { JobStateStore } from "./jobState";
 import { R2Client, r2ConfigFromEnv, renderArtifactKey } from "./r2";
+import { renderCommandLine } from "./render";
 import { inspectSession, type SessionCustodyOptions } from "./sessions";
 import { scrapeStudioAnalytics } from "./studio";
 import { PostingWorker } from "./uploader";
@@ -85,10 +86,10 @@ async function renderArtifact(body: JobBody, tempFiles: string[]): Promise<strin
   const { promisify } = await import("node:util");
   const run = promisify(execFile);
   const out = join(tmpdir(), `ventriloquist-render-${body.job_id}.mp4`);
-  const rendered = RENDER_COMMAND.replace("{story}", body.render_spec?.story ?? "").replace(
-    "{out}",
+  const rendered = renderCommandLine(RENDER_COMMAND, {
+    story: body.render_spec?.story ?? "",
     out,
-  );
+  });
   await run("/bin/sh", ["-c", rendered], { cwd: NBN_REPO_DIR, maxBuffer: 32 * 1024 * 1024 });
   tempFiles.push(out);
   return out;
