@@ -282,8 +282,10 @@ export async function updateJobStatus(
  * Failure doctrine (spec 7.4): two consecutive post failures halt posting.
  *
  * Only real outcomes (`posted`, `failed`) count, so a dry run or a held job
- * cannot break a failure streak. Rows settled at or before `clearedAt` (an
- * operator's explicit clear) are ignored.
+ * cannot break a failure streak. Rows settled before `clearedAt` (an
+ * operator's explicit clear) are ignored. Timestamps have one-second
+ * resolution, so the comparison is inclusive: a failure recorded in the clear
+ * second still counts (fail closed) rather than being silently dropped.
  */
 export async function consecutivePostFailures(
   db: D1Database,
@@ -296,7 +298,7 @@ export async function consecutivePostFailures(
       `SELECT status FROM post_jobs
         WHERE status IN ('posted', 'failed')
           AND COALESCE(posted_at, created_at) >= ?
-          AND COALESCE(updated_at, created_at) > ?
+          AND COALESCE(updated_at, created_at) >= ?
         ORDER BY COALESCE(posted_at, created_at) DESC
         LIMIT 10`,
     )

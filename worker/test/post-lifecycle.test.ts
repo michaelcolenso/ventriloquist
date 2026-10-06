@@ -172,4 +172,11 @@ describe("posting halt", () => {
     expect(body.held_jobs.map((job) => job.job_id)).toEqual(["job-held"]);
     expect(await consecutivePostFailures(db, NOW, body.cleared_at)).toBe(0);
   });
+
+  it("counts a failure recorded in the same second as the clear", async () => {
+    const { db, insert } = setup();
+    insert("fail-1", "failed", NOW - 300, NOW);
+    expect(await consecutivePostFailures(db, NOW, NOW)).toBe(1);
+    expect(await consecutivePostFailures(db, NOW, NOW + 1)).toBe(0);
+  });
 });

@@ -5,7 +5,7 @@
   "description": "Unofficial TikTok MCP facade: no official APIs, dual-path failover, accumulated trend data.",
   "packageManager": "pnpm@10.15.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "test": "pnpm -r run test",
