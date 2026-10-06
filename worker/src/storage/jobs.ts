@@ -7,6 +7,24 @@ export const MAX_HASHTAGS = 10;
 
 export type JobKind = "post" | "render_and_post";
 
+/**
+ * Statuses that record what actually happened on the VPS. Dispatch
+ * bookkeeping (`queued`, `running`) must never overwrite them: a fast
+ * callback can land before the dispatcher's own write, and a redelivered
+ * message can arrive after the job finished.
+ */
+export const TERMINAL_JOB_STATUSES = ["posted", "failed", "dry_run"] as const;
+
+/** Held by the dispatcher because posting was halted when it came due. */
+export const HELD_STATUS = "held";
+
+/** KV key holding the unix time an operator last cleared the posting halt. */
+export const HALT_CLEARED_KEY = "posting:halt_cleared_at";
+
+export function isTerminalStatus(status: string): boolean {
+  return (TERMINAL_JOB_STATUSES as readonly string[]).includes(status);
+}
+
 export interface PostJobMessage {
   jobId: string;
   kind: JobKind;
@@ -220,9 +238,11 @@ export async function updateJobStatus(
     error?: string | null;
     postedAt?: number | null;
     incrementAttempts?: boolean;
+    /** Leave the row alone if it already holds a terminal status. */
+    unlessTerminal?: boolean;
   },
   now: number,
-): Promise<void> {
+): Promise<boolean> {
   const sets: string[] = ["updated_at = ?"];
   const values: (string | number | null)[] = [now];
   if (patch.status !== undefined) {
@@ -248,23 +268,41 @@ export async function updateJobStatus(
   if (patch.incrementAttempts) {
     sets.push("attempts = attempts + 1");
   }
-  await db
-    .prepare(`UPDATE post_jobs SET ${sets.join(", ")} WHERE job_id = ?`)
-    .bind(...values, jobId)
+  const guard = patch.unlessTerminal
+    ? ` AND status NOT IN (${TERMINAL_JOB_STATUSES.map(() => "?").join(", ")})`
+    : "";
+  const result = await db
+    .prepare(`UPDATE post_jobs SET ${sets.join(", ")} WHERE job_id = ?${guard}`)
+    .bind(...values, jobId, ...(patch.unlessTerminal ? TERMINAL_JOB_STATUSES : []))
     .run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
-/** Failure doctrine (spec 7.4): two consecutive post failures halt posting. */
-export async function consecutivePostFailures(db: D1Database, now: number): Promise<number> {
+/**
+ * Failure doctrine (spec 7.4): two consecutive post failures halt posting.
+ *
+ * Only real outcomes (`posted`, `failed`) count, so a dry run or a held job
+ * cannot break a failure streak. Rows settled before `clearedAt` (an
+ * operator's explicit clear) are ignored. Timestamps have one-second
+ * resolution, so the comparison is inclusive: a failure recorded in the clear
+ * second still counts (fail closed) rather than being silently dropped.
+ */
+export async function consecutivePostFailures(
+  db: D1Database,
+  now: number,
+  clearedAt = 0,
+): Promise<number> {
   const windowStart = now - 24 * HOUR;
   const { results } = await db
     .prepare(
       `SELECT status FROM post_jobs
-        WHERE COALESCE(posted_at, created_at) >= ?
+        WHERE status IN ('posted', 'failed')
+          AND COALESCE(posted_at, created_at) >= ?
+          AND COALESCE(updated_at, created_at) >= ?
         ORDER BY COALESCE(posted_at, created_at) DESC
         LIMIT 10`,
     )
-    .bind(windowStart)
+    .bind(windowStart, clearedAt)
     .all<{ status: string }>();
   let consecutive = 0;
   for (const row of results ?? []) {
@@ -272,4 +310,20 @@ export async function consecutivePostFailures(db: D1Database, now: number): Prom
     else break;
   }
   return consecutive;
+}
+
+export interface PostingHalt {
+  failures: number;
+  halted: boolean;
+  clearedAt: number | null;
+}
+
+export async function postingHalt(
+  env: { DB: D1Database; KV: KVNamespace },
+  now: number,
+): Promise<PostingHalt> {
+  const raw = await env.KV.get(HALT_CLEARED_KEY);
+  const clearedAt = raw ? Number(raw) : null;
+  const failures = await consecutivePostFailures(env.DB, now, clearedAt ?? 0);
+  return { failures, halted: failures >= 2, clearedAt };
 }

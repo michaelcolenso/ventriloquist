@@ -7,6 +7,7 @@ import { describeTool } from "../mcp/registry";
 import { buildBackends } from "../backends/providers";
 import { createLogger } from "../lib/logger";
 import { DAY } from "../lib/time";
+import { HALT_CLEARED_KEY, HELD_STATUS } from "../storage/jobs";
 
 export interface WorkerContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -205,6 +206,19 @@ async function handleAdmin(
       );
       await env.DB.batch(statements);
       return json({ ok: true, added: entities.length });
+    }
+
+    if (url.pathname === "/admin/posting/clear-halt" && request.method === "POST") {
+      // Failures settled up to now stop counting toward the halt. Held jobs
+      // stay held: re-queue them deliberately so cap and spacing re-validate.
+      await env.KV.put(HALT_CLEARED_KEY, String(appContext.now));
+      const { results } = await env.DB.prepare(
+        `SELECT job_id, kind, scheduled_at, created_at FROM post_jobs
+          WHERE status = ? ORDER BY created_at`,
+      )
+        .bind(HELD_STATUS)
+        .all<{ job_id: string; kind: string; scheduled_at: number | null; created_at: number | null }>();
+      return json({ ok: true, cleared_at: appContext.now, held_jobs: results ?? [] });
     }
 
     if (url.pathname === "/admin/budget" && request.method === "POST") {

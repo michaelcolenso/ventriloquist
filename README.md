@@ -20,7 +20,7 @@ The full technical specification is in
 | Queued posting path (cap, spacing, R2 check, halt-on-failure, callbacks, idempotent dispatch) | working | `worker/src/mcp/tools/posting.ts`, `worker/src/jobs/` |
 | Self-hosted signer gateway (Puppeteer pool, dual strategy, mock mode) | working (mock verified; live path needs real Chromium + TikTok reachability) | `signer/` |
 | Playwright posting worker (session custody, pacing, idempotent jobs, R2 artifact upload, Studio scrape) | implemented (upload flow unverified against live Studio) | `vps-agent/` |
-| End-to-end smoke test through the MCP transport, incl. kill-the-signer failover and admin-auth checks | passing, 43/43 | `scripts/smoke.mjs` |
+| End-to-end smoke test through the MCP transport, incl. kill-the-signer failover and admin-auth checks | passing, 45/45 | `scripts/smoke.mjs` |
 | CI (typecheck, tests, smoke) + weekly D1 export to R2 | configured | `.github/workflows/` |
 
 Not built: the pure-Python signer prototype, Whisper transcription on the VPS,
@@ -37,7 +37,7 @@ pnpm smoke
 
 `pnpm smoke` runs the whole pipeline offline: it boots the signer gateway in
 mock mode plus a mock vendor, boots the facade on local D1/KV/R2/Queues, and
-drives the real MCP endpoint. Among the 40 checks it kills the signer to prove
+drives the real MCP endpoint. Among the 45 checks it kills the signer to prove
 the paid fallback takes over, trips the circuit breaker, and confirms the
 velocity engine classifies an accelerating hashtag as `GROWTH`.
 

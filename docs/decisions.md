@@ -110,3 +110,16 @@ Two deliberate choices:
   raise a Telegram message when the bot token and chat id are configured.
 - **Backups.** A scheduled GitHub Actions workflow exports D1 to R2; a restore
   into a scratch database is part of the go-live checklist.
+- **Job outcomes are never overwritten by bookkeeping.** `posted`, `failed`
+  and `dry_run` are terminal in `post_jobs`: the consumer marks a job `running`
+  before dispatch, and neither it nor an in-progress callback can move a
+  terminal row back. A duplicate dispatch adopts the VPS's stored outcome.
+- **The halt also holds due jobs.** Jobs that come due while posting is halted
+  are marked `held` rather than dispatched. Clearing is an explicit admin call
+  (`POST /admin/posting/clear-halt`) that writes a KV marker; only `posted` and
+  `failed` rows after it count toward the next streak.
+- **One shared secret for both posting directions.** `FACADE_CALLBACK_TOKEN`
+  authorises both facade -> VPS `/jobs` and VPS -> facade `/admin/job-callback`.
+  Anyone holding it can dispatch jobs and forge outcomes. Accepted for a
+  single-operator deployment; split it into two tokens before anyone else
+  gets access to either side.

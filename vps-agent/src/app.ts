@@ -24,6 +24,19 @@ export interface JobOutcome {
 
 export type JobRunner = (body: JobBody) => Promise<JobOutcome>;
 
+/**
+ * Dry runs must not look like posts: a dry-run job is recorded as `dry_run`
+ * so it neither reports a tiktok_url nor consumes the daily posting cap.
+ */
+export function outcomeStatus(
+  result: { ok: boolean; skipped?: boolean },
+  dryRun: boolean,
+): JobStatus {
+  if (!result.ok) return "failed";
+  if (dryRun) return "dry_run";
+  return result.skipped ? "queued" : "posted";
+}
+
 export interface AppDeps {
   app: FastifyInstance;
   postingWorkerToken: string;

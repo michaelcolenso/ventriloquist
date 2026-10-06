@@ -430,6 +430,20 @@ async function main() {
       },
     );
     check("job callbacks reject forged reports", anonymousCallback.status === 401);
+    const anonymousClear = await fetch(
+      `http://127.0.0.1:${WORKER_PORT}/admin/posting/clear-halt`,
+      { method: "POST" },
+    );
+    check("clearing the posting halt requires admin auth", anonymousClear.status === 401);
+    const cleared = await fetch(`http://127.0.0.1:${WORKER_PORT}/admin/posting/clear-halt`, {
+      method: "POST",
+      headers: ADMIN_HEADERS,
+    }).then((r) => r.json());
+    check(
+      "clearing the posting halt records the time and lists held jobs",
+      cleared.ok === true && typeof cleared.cleared_at === "number" && Array.isArray(cleared.held_jobs),
+      JSON.stringify(cleared),
+    );
     check(
       "system status reports the auth/alert configuration",
       status.data?.configuration?.admin_auth_configured === true &&

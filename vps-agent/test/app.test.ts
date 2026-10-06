@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildApp, type AppDeps, type JobOutcome } from "../src/app";
+import { buildApp, outcomeStatus, type AppDeps, type JobOutcome } from "../src/app";
 import { JobStateStore } from "../src/jobState";
 import type { SessionStatus } from "../src/sessions";
 import type { StudioAnalyticsRow } from "../src/studio";
@@ -73,6 +73,13 @@ afterEach(async () => {
 });
 
 describe("posting worker http surface", () => {
+  it("records a dry run as dry_run instead of posted", () => {
+    expect(outcomeStatus({ ok: true, skipped: false }, true)).toBe("dry_run");
+    expect(outcomeStatus({ ok: true, skipped: false }, false)).toBe("posted");
+    expect(outcomeStatus({ ok: true, skipped: true }, false)).toBe("queued");
+    expect(outcomeStatus({ ok: false }, true)).toBe("failed");
+  });
+
   it("rejects /jobs without the shared token", async () => {
     const { app } = await harness();
     const response = await app.inject({ method: "POST", url: "/jobs", payload: { job_id: "j" } });
