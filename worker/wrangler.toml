@@ -11,13 +11,13 @@ enabled = true
 [[d1_databases]]
 binding = "DB"
 database_name = "ventriloquist"
-database_id = "local-dev-placeholder"
+database_id = "3341aa8e-b642-491e-b3e3-a769ff3a7723"
 migrations_dir = "migrations"
 
 # KV holds circuit-breaker state, msToken cache and the daily paid budget.
 [[kv_namespaces]]
 binding = "KV"
-id = "local-dev-placeholder"
+id = "49de743d9a6c4e848efd44a1a0cda07e"
 
 # R2 holds render artifacts, media pulled for transcription and thumbnails.
 [[r2_buckets]]
