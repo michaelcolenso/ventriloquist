@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { signOrFetchImpl } from "../src/pagePool";
+import { parseProxyUrl, signOrFetchImpl } from "../src/pagePool";
 
 const fetchStub = () =>
   vi.fn(async () => ({
@@ -46,5 +46,25 @@ describe("signOrFetchImpl", () => {
     expect(outcome).toMatchObject({ mode: "in_page", status: 200, body: '{"ok":1}', strategy: "in_page_fetch (forced)" });
     expect(sign).not.toHaveBeenCalled();
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).not.toContain("X-Bogus");
+  });
+});
+
+describe("parseProxyUrl", () => {
+  it("returns null when unset or blank", () => {
+    expect(parseProxyUrl(undefined)).toBeNull();
+    expect(parseProxyUrl("  ")).toBeNull();
+  });
+
+  it("splits credentials from the proxy server", () => {
+    expect(parseProxyUrl("http://us%40er:p%3Ass@proxy.example.com:8000")).toEqual({
+      server: "http://proxy.example.com:8000",
+      username: "us@er",
+      password: "p:ss",
+    });
+    expect(parseProxyUrl("socks5://proxy.example.com:1080")).toEqual({ server: "socks5://proxy.example.com:1080" });
+  });
+
+  it("rejects unsupported protocols", () => {
+    expect(() => parseProxyUrl("ftp://proxy.example.com")).toThrow(/unsupported proxy protocol/);
   });
 });

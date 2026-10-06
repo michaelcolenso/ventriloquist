@@ -13,8 +13,30 @@ export interface SignerPoolOptions {
    * VPS IP rather than the Worker's Cloudflare IP.
    */
   forceInPage?: boolean;
+  /** Route Chromium through this proxy (http://user:pass@host:port), e.g. a residential one. */
+  proxy?: ProxyConfig | null;
   /** Page loaded once per worker so TikTok's own web SDK + cookies are live. */
   warmupUrl?: string;
+}
+
+export interface ProxyConfig {
+  server: string;
+  username?: string;
+  password?: string;
+}
+
+/** Split a proxy URL into Chromium's --proxy-server value and separate credentials. */
+export function parseProxyUrl(raw: string | undefined): ProxyConfig | null {
+  const text = raw?.trim();
+  if (!text) return null;
+  const url = new URL(text);
+  if (!["http:", "https:", "socks5:", "socks4:"].includes(url.protocol)) {
+    throw new Error(`unsupported proxy protocol: ${url.protocol}`);
+  }
+  const config: ProxyConfig = { server: `${url.protocol}//${url.host}` };
+  if (url.username) config.username = decodeURIComponent(url.username);
+  if (url.password) config.password = decodeURIComponent(url.password);
+  return config;
 }
 
 export interface SignedResult {
@@ -102,11 +124,16 @@ export class SignerPool implements Signer {
         "--disable-dev-shm-usage",
         "--disable-blink-features=AutomationControlled",
         `--user-agent=${this.options.userAgent}`,
+        ...(this.options.proxy ? [`--proxy-server=${this.options.proxy.server}`] : []),
       ],
     });
 
     for (let index = 0; index < this.options.poolSize; index += 1) {
       const page = await this.browser.newPage();
+      const proxy = this.options.proxy;
+      if (proxy?.username) {
+        await page.authenticate({ username: proxy.username, password: proxy.password ?? "" });
+      }
       await page.setUserAgent(this.options.userAgent);
       await page.setViewport({ width: 1366, height: 900 });
       await page.setExtraHTTPHeaders({ "accept-language": "en-US,en;q=0.9" });

@@ -1,5 +1,5 @@
 import { createServer } from "./server";
-import { SignerPool, type PoolHealth, type SignOutcome, type Signer } from "./pagePool";
+import { SignerPool, parseProxyUrl, type PoolHealth, type SignOutcome, type Signer } from "./pagePool";
 
 const PORT = Number(process.env.PORT ?? 8788);
 const TOKEN = process.env.SIGNER_TOKEN ?? "";
@@ -8,6 +8,7 @@ const HEADLESS = process.env.SIGNER_HEADLESS !== "0";
 const POOL_SIZE = Number(process.env.SIGNER_PAGE_POOL_SIZE ?? 2);
 const TIMEOUT_MS = Number(process.env.SIGNER_TIMEOUT_MS ?? 20_000);
 const FORCE_IN_PAGE = process.env.SIGNER_FORCE_IN_PAGE === "1" || process.env.SIGNER_FORCE_IN_PAGE === "true";
+const PROXY = parseProxyUrl(process.env.SIGNER_PROXY_URL);
 const EXECUTABLE_PATH = process.env.CHROME_EXECUTABLE_PATH ?? "/usr/bin/chromium";
 const USER_AGENT =
   process.env.SIGNER_USER_AGENT ??
@@ -30,6 +31,7 @@ const pool = new SignerPool({
   userAgent: USER_AGENT,
   timeoutMs: TIMEOUT_MS,
   forceInPage: FORCE_IN_PAGE,
+  proxy: PROXY,
 });
 
 const app = createServer({ signer: MOCK ? mockSigner : pool, token: TOKEN, mock: MOCK });
@@ -44,7 +46,7 @@ async function bootstrap(): Promise<void> {
   }
   await app.listen({ port: PORT, host: "0.0.0.0" });
   app.log.info(
-    { port: PORT, mock: MOCK, poolSize: POOL_SIZE, headless: HEADLESS, forceInPage: FORCE_IN_PAGE },
+    { port: PORT, mock: MOCK, poolSize: POOL_SIZE, headless: HEADLESS, forceInPage: FORCE_IN_PAGE, proxy: PROXY?.server ?? null },
     "ventriloquist signer gateway up",
   );
 }

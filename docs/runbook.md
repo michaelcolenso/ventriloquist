@@ -110,6 +110,13 @@ curl -s localhost:8788/sign -H "authorization: Bearer $SIGNER_TOKEN" \
 SDK global and the gateway is fetching inside the page - reads keep working,
 but this is the signal to spend maintenance time, and `strategy` says why.
 
+If hashtag reads work but profiles, video lists, search and comments come back
+empty, TikTok is throttling the VPS's datacenter IP for those endpoints. Set
+`SIGNER_PROXY_URL=http://user:pass@host:port` (http, https, socks4 or socks5) to
+route the signer's Chromium through a residential proxy. Credentials are passed
+to the browser separately and are never logged; the startup log shows only the
+proxy host.
+
 If live reads fail with `tiktok returned an empty body` while `/sign` reports
 `mode: "signed"`, the Worker is fetching the signed URL from a Cloudflare IP
 different from the VPS session that minted the signature. Set
