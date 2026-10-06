@@ -201,7 +201,12 @@ export const signOrFetchImpl = async function (target: string, forceInPage: bool
 
   if (signer) {
     try {
-      const raw = signer.fn({ url: target });
+      // The signature covers the whole query string, so msToken must already be
+      // in the URL when it is signed. Appending it afterwards invalidates the
+      // signature ("url doesn't match").
+      const cookieToken = /(?:^|;\s*)msToken=([^;]+)/.exec(document.cookie)?.[1];
+      if (cookieToken && !url.searchParams.has("msToken")) url.searchParams.set("msToken", cookieToken);
+      const raw = signer.fn({ url: url.toString() });
       const params = new URLSearchParams();
       if (typeof raw === "string") {
         if (raw.includes("=") && !raw.includes(" ")) {
@@ -221,8 +226,6 @@ export const signOrFetchImpl = async function (target: string, forceInPage: bool
           }
         }
       }
-      const msToken = /(?:^|;\s*)msToken=([^;]+)/.exec(document.cookie)?.[1];
-      if (msToken && !params.has("msToken")) params.set("msToken", msToken);
       for (const [key, value] of params) url.searchParams.set(key, value);
 
       if (params.size > 0 && !forceInPage) {

@@ -8,7 +8,7 @@ const fetchStub = () =>
     headers: { get: () => "application/json" },
   }));
 
-function installPage(sign: () => unknown) {
+function installPage(sign: (input: { url: string }) => unknown) {
   const fetchMock = fetchStub();
   vi.stubGlobal("window", { byted_acrawler: { sign } });
   vi.stubGlobal("document", { cookie: "msToken=abc; other=1" });
@@ -30,6 +30,13 @@ describe("signOrFetchImpl", () => {
     const outcome = await signOrFetchImpl(TARGET, false);
     expect(outcome.mode).toBe("signed");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("puts msToken in the URL before signing it", async () => {
+    const sign = vi.fn((_input: { url: string }) => ({ "X-Bogus": "sig" }));
+    installPage(sign);
+    await signOrFetchImpl(TARGET, false);
+    expect(sign.mock.calls[0]![0].url).toContain("msToken=abc");
   });
 
   it("signs, then fetches the signed URL inside the page, when forced", async () => {
