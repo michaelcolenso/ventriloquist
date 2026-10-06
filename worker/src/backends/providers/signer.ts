@@ -141,7 +141,7 @@ export class SignerProvider implements CapabilityProvider {
         const name = requireString(this.name, capability, params, "hashtag").replace(/^#/, "");
         const challengeId =
           optionalString(params, "hashtag_id") ?? (await this.resolveChallengeId(capability, ctx, name));
-        const payload = await this.getJson(capability, ctx, "/api/challenge/aweme/", {
+        const payload = await this.getJson(capability, ctx, "/api/challenge/item_list/", {
           challengeID: challengeId,
           count: optionalNumber(params, "count", 20),
           cursor: optionalString(params, "cursor"),
