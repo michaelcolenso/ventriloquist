@@ -9,7 +9,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY package.json ./
-RUN corepack enable && npm install --no-save tsx typescript fastify puppeteer-core
+RUN npm install --omit=dev tsx typescript
 COPY tsconfig.json ./
 COPY src ./src
 
