@@ -9,7 +9,10 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY package.json ./
-RUN npm install --omit=dev tsx typescript
+# Drop devDependencies first: npm 10's arborist crashes ("edgesOut") on the
+# vitest tree when installing without a lockfile.
+RUN npm pkg delete devDependencies scripts \
+ && npm install --omit=dev tsx typescript
 COPY tsconfig.json ./
 COPY src ./src
 
