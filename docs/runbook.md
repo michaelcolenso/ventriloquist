@@ -113,9 +113,9 @@ but this is the signal to spend maintenance time, and `strategy` says why.
 If live reads fail with `tiktok returned an empty body` while `/sign` reports
 `mode: "signed"`, the Worker is fetching the signed URL from a Cloudflare IP
 different from the VPS session that minted the signature. Set
-`SIGNER_FORCE_IN_PAGE=1` on the signer: it then always fetches from inside the
-page (`mode: "in_page"`, strategy `in_page_fetch (forced)`), so the request
-leaves from the VPS IP.
+`SIGNER_FORCE_IN_PAGE=1` on the signer: it still signs in the page, then fetches
+the signed URL from inside the page (`mode: "in_page"`, strategy
+`<signer> + in_page_fetch (forced)`), so the request leaves from the VPS IP.
 
 ## Deploying the posting worker (VPS, RED)
 

@@ -7,9 +7,10 @@ export interface SignerPoolOptions {
   userAgent: string;
   timeoutMs: number;
   /**
-   * Always fetch from inside the page instead of handing back a signed URL.
-   * The signed URL is fetched by the Worker from a different IP than the one
-   * that minted the signature, which TikTok may answer with an empty body.
+   * Sign inside the page, then fetch from inside the page too, instead of
+   * handing back a signed URL. The signed URL is otherwise fetched by the
+   * Worker from a different IP than the one that minted the signature, which
+   * TikTok may answer with an empty body.
    */
   forceInPage?: boolean;
   /** Page loaded once per worker so TikTok's own web SDK + cookies are live. */
@@ -198,7 +199,7 @@ export const signOrFetchImpl = async function (target: string, forceInPage: bool
         ? { fn: acrawler.sign.bind(acrawler), name: "byted_acrawler.sign" }
         : null;
 
-  if (signer && !forceInPage) {
+  if (signer) {
     try {
       const raw = signer.fn({ url: target });
       const params = new URLSearchParams();
@@ -224,7 +225,7 @@ export const signOrFetchImpl = async function (target: string, forceInPage: bool
       if (msToken && !params.has("msToken")) params.set("msToken", msToken);
       for (const [key, value] of params) url.searchParams.set(key, value);
 
-      if (params.size > 0) {
+      if (params.size > 0 && !forceInPage) {
         return {
           mode: "signed",
           url: url.toString(),
@@ -250,7 +251,7 @@ export const signOrFetchImpl = async function (target: string, forceInPage: bool
     body,
     contentType: response.headers.get("content-type"),
     strategy: forceInPage
-      ? "in_page_fetch (forced)"
+      ? `${signer?.name ?? "unsigned"} + in_page_fetch (forced)`
       : signer
         ? `${signer.name} (unusable, in-page fetch)`
         : "in_page_fetch",
