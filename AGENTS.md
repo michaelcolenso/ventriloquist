@@ -1,40 +1,72 @@
 # Repository Guidelines
 
+## Project Overview
+
+Ventriloquist is an unofficial TikTok MCP facade: no official TikTok API, no OAuth. Every read has two independent backends with automatic failover, every response is snapshotted into D1, and every tool advertises its own risk tier (GREEN scraped-public, AMBER session-authenticated read, RED write action). The full technical specification is `ventriloquist-tiktok-mcp-spec.md`; resolved design decisions and deviations from the spec are in `docs/decisions.md`; deployment and operations are in `docs/runbook.md`.
+
 ## Project Structure & Module Organization
 
-Ventriloquist is a pnpm workspace with three TypeScript packages:
+A pnpm workspace (`pnpm-workspace.yaml`) with three TypeScript packages:
 
-- `worker/` - Cloudflare Worker MCP facade: `src/mcp/`, `src/backends/`, `src/velocity/`, `src/storage/`, `src/cron/`, `migrations/`, `test/`
-- `signer/` - Fastify signer gateway (Puppeteer), with `src/` and `test/`
-- `vps-agent/` - Playwright posting worker, with `src/` and `test/`
+- `worker/` - Cloudflare Worker MCP facade (`@ventriloquist/worker`):
+  - `src/mcp/` - tool registry and the 20 `tt_*` tools (`tools/trends.ts`, `accounts.ts`, `comments.ts`, `own.ts`, `posting.ts`, `system.ts`)
+  - `src/backends/` - provider registry (`providers/signer.ts`, `creativeCenter.ts`, `scrapebadger.ts`), health probes, circuit breakers with canary recovery, cost ledger, daily budget
+  - `src/velocity/` - velocity engine (`math.ts`, `engine.ts`) and comment mining (`ideas.ts`)
+  - `src/storage/` - D1 snapshot writers, jobs, analytics; `src/cron/` - 7 cron jobs keyed off the cron string; `src/jobs/` - queue consumer and job callbacks
+  - `src/lib/` - shared helpers including `alerts.ts` (Telegram operator alerts)
+  - `migrations/` - D1 schema (apply with `wrangler d1 migrations apply`)
+- `signer/` - self-hosted signer gateway (`@ventriloquist/signer`): Fastify + Puppeteer pool that signs via TikTok's own web SDK, with a `MOCK=1` fixture mode and a `Dockerfile` for VPS deployment
+- `vps-agent/` - Playwright posting worker (`@ventriloquist/vps-agent`): session custody (`sessions.ts`), pacing, idempotent job state (`jobState.ts`), render command execution (`render.ts`), R2 artifact upload (`r2.ts`), Studio scrape (`studio.ts`)
 
-Shared assets live in `scripts/` (`smoke.mjs`, `draft-cohort.mjs`, `seed-cohort.mjs`) and `docs/` (`decisions.md`, `runbook.md`). CI and the weekly D1 backup workflow live in `.github/workflows/`. The technical spec is `ventriloquist-tiktok-mcp-spec.md`.
+Shared assets: `scripts/` (`smoke.mjs` end-to-end, `draft-cohort.mjs` + `seed-cohort.mjs` for the shadow cohort), `docs/` (`decisions.md`, `runbook.md`), `.github/workflows/` (CI + weekly D1 backup).
 
 ## Build, Test, and Development Commands
 
-Run all commands from the repository root:
+Run from the repository root (Node >= 22.13, pnpm 10.15.0):
 
-- `pnpm install` - install workspace dependencies (Node >= 22).
+- `pnpm install` - install workspace dependencies.
 - `pnpm migrate:local` - apply D1 migrations to the local database.
-- `pnpm dev` - run the Worker facade on `:8787`; `pnpm signer:dev` runs the signer.
+- `pnpm dev` - run the Worker facade on `:8787` (`wrangler dev`); `pnpm signer:dev` runs the signer gateway (`MOCK=1` for offline work).
 - `pnpm test` - run every package's Vitest suite.
 - `pnpm typecheck` - run `tsc --noEmit` across the workspace.
-- `pnpm smoke` - boot mocks and drive the real MCP endpoint end to end.
+- `pnpm smoke` - boot mock signer + mock vendor + local Worker and drive the real MCP endpoint (45 checks, including killing the signer to prove failover).
 
-Scope a package with `pnpm --filter @ventriloquist/worker run test:watch`.
+Scope one package with `pnpm --filter @ventriloquist/worker run test:watch`. There is no build step: the Worker deploys via `wrangler deploy`, and the signer/vps-agent run directly under `tsx`.
 
 ## Coding Style & Naming Conventions
 
-Use ESM TypeScript, two-space indentation, double quotes, semicolons, and `camelCase` for values with `PascalCase` for types. Tool files follow existing names such as `worker/src/backends/providers/creativeCenter.ts`; MCP tool names are `tt_*` and must declare a risk tier. Strict settings come from `tsconfig.base.json` (`strict`, `noUncheckedIndexedAccess`). No linter or formatter is configured, so match surrounding code and rely on `pnpm typecheck`.
+ESM TypeScript throughout (`"type": "module"`), two-space indentation, double quotes, semicolons, `camelCase` for values, `PascalCase` for types and classes. File names are `camelCase.ts` (e.g. `worker/src/backends/providers/creativeCenter.ts`). Strictness comes from `tsconfig.base.json` (`strict`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `verbatimModuleSyntax`); each package extends it. No linter or formatter is configured - match surrounding code and rely on `pnpm typecheck`.
+
+Conventions that matter:
+
+- MCP tool names are `tt_*` and every tool is declared with `defineTool` in `worker/src/mcp/registry.ts`, which requires a `risk` tier; descriptions are generated by `describeTool` as `[TIER - label] title - summary <tier caveat>`.
+- Tool handlers never throw: `wrapHandler` converts failures into structured error results and logs them.
+- Errors are classified (`worker/src/lib/errors.ts`): only real provider faults count toward the three-strike circuit breaker, not bad input.
+- Fail closed on auth: `/admin/*` requires `ADMIN_TOKEN`, job callbacks require `FACADE_CALLBACK_TOKEN`, and both reject everything when unset. `MCP_AUTH_TOKEN` optionally gates `/mcp`.
+- RED posting is structurally throttled (5/day cap, 3h spacing) and idempotent per `job_id` - a queue retry replays the recorded outcome instead of posting twice.
 
 ## Testing Guidelines
 
-Vitest is configured per package; tests belong in `<package>/test/**/*.test.ts` and are named `<subject>.test.ts` (for example, `velocity-math.test.ts`). Use `describe("<unit>")` and `it("<observable behavior>")`. Add focused tests for new routing, velocity, posting, or validation logic, then run `pnpm test` and `pnpm typecheck`. Use `pnpm smoke` for integration changes.
+Vitest is configured per package (`<package>/vitest.config.ts`, node environment). Tests live in `<package>/test/**/*.test.ts`, named `<subject>.test.ts` (e.g. `velocity-math.test.ts`), using `describe("<unit>")` / `it("<observable behavior>")`. Shared helpers live in `worker/test/support/`: `fakes.ts` (fake Env/bindings) and `sqlite.ts` (a D1 stand-in backed by `node:sqlite` with every migration applied - use it when correctness lives in the SQL). `scrapebadger-contract.test.ts` pins the vendor's published API shapes.
 
-## Commit & Pull Request Guidelines
+Add focused tests for new routing, velocity, posting, or validation logic, then run `pnpm test` and `pnpm typecheck`. Use `pnpm smoke` for integration changes; it uses hermetic local state in `.wrangler-smoke/` and writes a gitignored `worker/.dev.vars` for mock mode.
 
-Follow Conventional Commits with an optional scope: `fix(smoke): resolve workspace-local binaries`, `docs: update runbook`, `chore: scaffold pnpm workspace`. Keep subjects imperative; explain the reason in the body. Pull requests should state what changed and why, list verification commands, link the relevant spec section or issue, and call out risk-tier, binding, or secret changes.
+## CI & Deployment
+
+`.github/workflows/ci.yml` runs `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm test`, and `pnpm smoke` on pushes and PRs to `main`. `.github/workflows/d1-backup.yml` exports D1 to an R2 backup bucket weekly (needs `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` secrets and the `BACKUP_BUCKET` variable).
+
+Deployment (details in `docs/runbook.md`): the facade is a Cloudflare Worker with D1, KV, R2, a posting Queue (+ DLQ), and cron triggers - all declared in `worker/wrangler.toml`; create the resources with `wrangler`, set secrets with `wrangler secret put`, deploy with `pnpm --filter @ventriloquist/worker run deploy`. The signer deploys to a VPS via its `Dockerfile` (or `tsx` with Chromium installed); the vps-agent runs under `tsx` on the same VPS. Both VPS services should sit behind Cloudflare Tunnel - the tunnel is transport, the bearer tokens are authorization.
 
 ## Configuration & Security
 
-Copy `.env.example` values into local environment files or `wrangler` secrets. Never commit tokens, posting sessions, or `.dev.vars`. Use `MOCK=1` for offline development; live signer and posting paths require Chromium, vendor keys, and a real session. Declare Worker bindings in `worker/wrangler.toml`.
+`.env.example` documents every environment variable for all three components. Rules:
+
+- Never commit tokens, posting sessions, `*.age` files, or `.dev.vars` - `.gitignore` already excludes session material; keep it that way.
+- Posting cookies live only on the VPS, sealed with `age` (`POSTING_SESSION_AGE_CMD`); health endpoints report cookie names and counts, never values. A separate burner session is used for AMBER scraping so the posting session never touches scraping.
+- Three tokens must match across Worker and VPS or jobs are rejected: the Worker's `POSTING_WORKER_TOKEN` and `FACADE_CALLBACK_TOKEN`, and the VPS's `FACADE_CALLBACK_TOKEN`.
+- Use `MOCK=1` (signer) and `POSTING_DRY_RUN=1` (vps-agent) for development; live signer/posting paths require Chromium, vendor keys, and a real session. Dry runs are recorded as `dry_run`, not `posted`, and neither trip nor clear a posting halt.
+- After two consecutive post failures, posting halts automatically; jobs that come due while halted are marked `held` and must be re-queued after `POST /admin/posting/clear-halt`.
+
+## Commit & Pull Request Guidelines
+
+Follow Conventional Commits with an optional scope: `fix(worker): keep recorded job outcomes and enforce the halt at dispatch`, `docs: update runbook`, `chore: scaffold pnpm workspace`. Keep subjects imperative; explain the reason in the body. Pull requests should state what changed and why, list verification commands, link the relevant spec section or issue, and call out risk-tier, binding, or secret changes.
