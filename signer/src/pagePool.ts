@@ -7,10 +7,10 @@ export interface SignerPoolOptions {
   userAgent: string;
   timeoutMs: number;
   /**
-   * Sign inside the page, then fetch from inside the page too, instead of
-   * handing back a signed URL. The signed URL is otherwise fetched by the
-   * Worker from a different IP than the one that minted the signature, which
-   * TikTok may answer with an empty body.
+   * Fetch from inside the page instead of handing back a signed URL. TikTok's
+   * SDK hooks the page's own fetch and adds X-Bogus, X-Gnarly and X-Dynosaur,
+   * which frontierSign alone does not produce. The request also leaves from the
+   * VPS IP rather than the Worker's Cloudflare IP.
    */
   forceInPage?: boolean;
   /** Page loaded once per worker so TikTok's own web SDK + cookies are live. */
@@ -199,7 +199,7 @@ export const signOrFetchImpl = async function (target: string, forceInPage: bool
         ? { fn: acrawler.sign.bind(acrawler), name: "byted_acrawler.sign" }
         : null;
 
-  if (signer) {
+  if (signer && !forceInPage) {
     try {
       // The signature covers the whole query string, so msToken must already be
       // in the URL when it is signed. Appending it afterwards invalidates the
@@ -228,7 +228,7 @@ export const signOrFetchImpl = async function (target: string, forceInPage: bool
       }
       for (const [key, value] of params) url.searchParams.set(key, value);
 
-      if (params.size > 0 && !forceInPage) {
+      if (params.size > 0) {
         return {
           mode: "signed",
           url: url.toString(),
@@ -254,7 +254,7 @@ export const signOrFetchImpl = async function (target: string, forceInPage: bool
     body,
     contentType: response.headers.get("content-type"),
     strategy: forceInPage
-      ? `${signer?.name ?? "unsigned"} + in_page_fetch (forced)`
+      ? "in_page_fetch (forced)"
       : signer
         ? `${signer.name} (unusable, in-page fetch)`
         : "in_page_fetch",

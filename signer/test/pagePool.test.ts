@@ -39,19 +39,12 @@ describe("signOrFetchImpl", () => {
     expect(sign.mock.calls[0]![0].url).toContain("msToken=abc");
   });
 
-  it("signs, then fetches the signed URL inside the page, when forced", async () => {
-    const sign = vi.fn(() => ({ "X-Bogus": "sig" }));
+  it("fetches inside the page without signing, leaving that to the SDK's fetch hook, when forced", async () => {
+    const sign = vi.fn((_input: { url: string }) => ({ "X-Bogus": "sig" }));
     const fetchMock = installPage(sign);
     const outcome = await signOrFetchImpl(TARGET, true);
-    expect(outcome).toMatchObject({
-      mode: "in_page",
-      status: 200,
-      body: '{"ok":1}',
-      strategy: "byted_acrawler.sign + in_page_fetch (forced)",
-    });
-    expect(sign).toHaveBeenCalledOnce();
-    const fetchedUrl = String((fetchMock.mock.calls[0] as unknown[])[0]);
-    expect(fetchedUrl).toContain("X-Bogus=sig");
-    expect(fetchedUrl).toContain("msToken=abc");
+    expect(outcome).toMatchObject({ mode: "in_page", status: 200, body: '{"ok":1}', strategy: "in_page_fetch (forced)" });
+    expect(sign).not.toHaveBeenCalled();
+    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).not.toContain("X-Bogus");
   });
 });
