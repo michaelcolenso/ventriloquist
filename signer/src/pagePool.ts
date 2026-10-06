@@ -6,6 +6,12 @@ export interface SignerPoolOptions {
   headless: boolean;
   userAgent: string;
   timeoutMs: number;
+  /**
+   * Always fetch from inside the page instead of handing back a signed URL.
+   * The signed URL is fetched by the Worker from a different IP than the one
+   * that minted the signature, which TikTok may answer with an empty body.
+   */
+  forceInPage?: boolean;
   /** Page loaded once per worker so TikTok's own web SDK + cookies are live. */
   warmupUrl?: string;
 }
@@ -144,7 +150,7 @@ export class SignerPool implements Signer {
     await this.start();
     const slot = await this.acquire();
     try {
-      const outcome = await slot.page.evaluate(signOrFetchImpl, url);
+      const outcome = await slot.page.evaluate(signOrFetchImpl, url, this.options.forceInPage === true);
       if (!outcome) throw new Error("page returned no signature result");
       return outcome as SignOutcome;
     } finally {
@@ -174,7 +180,7 @@ export class SignerPool implements Signer {
  * Must not capture any outer scope: puppeteer serialises this function and
  * evaluates it in the page, where only browser globals exist.
  */
-const signOrFetchImpl = async function (target: string) {
+export const signOrFetchImpl = async function (target: string, forceInPage: boolean) {
   const win = window as unknown as Record<string, any>;
   const url = new URL(target);
   const headers: Record<string, string> = {
@@ -192,7 +198,7 @@ const signOrFetchImpl = async function (target: string) {
         ? { fn: acrawler.sign.bind(acrawler), name: "byted_acrawler.sign" }
         : null;
 
-  if (signer) {
+  if (signer && !forceInPage) {
     try {
       const raw = signer.fn({ url: target });
       const params = new URLSearchParams();
@@ -243,7 +249,11 @@ const signOrFetchImpl = async function (target: string) {
     status: response.status,
     body,
     contentType: response.headers.get("content-type"),
-    strategy: signer ? `${signer.name} (unusable, in-page fetch)` : "in_page_fetch",
+    strategy: forceInPage
+      ? "in_page_fetch (forced)"
+      : signer
+        ? `${signer.name} (unusable, in-page fetch)`
+        : "in_page_fetch",
   };
 };
 
