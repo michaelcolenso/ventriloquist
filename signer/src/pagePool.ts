@@ -74,6 +74,12 @@ interface Slot {
   busy: boolean;
 }
 
+/** Runs in the page: TikTok's SDK has replaced fetch and the msToken cookie exists. */
+export const sdkReady = function (): boolean {
+  const hooked = !/\[native code\]/.test(Function.prototype.toString.call(window.fetch));
+  return hooked && /(?:^|;\s*)msToken=/.test(document.cookie);
+};
+
 /**
  * A small pool of headless Chromium pages with TikTok's own web SDK loaded.
  *
@@ -140,8 +146,10 @@ export class SignerPool implements Signer {
       const warmup = this.options.warmupUrl ?? "https://www.tiktok.com/";
       try {
         await page.goto(warmup, { waitUntil: "domcontentloaded", timeout: this.options.timeoutMs });
-        // Give the SDK bundle a moment to attach its signing globals.
-        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        // Wait for the SDK to hook fetch and set msToken. A fixed pause is too
+        // short through a proxy; a request sent before this is unsigned and
+        // TikTok answers it with an empty body.
+        await page.waitForFunction(sdkReady, { timeout: Math.max(this.options.timeoutMs, 20_000) });
       } catch (error) {
         this.lastError = `warmup failed: ${String(error)}`;
       }

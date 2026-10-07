@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseProxyUrl, signOrFetchImpl } from "../src/pagePool";
+import { parseProxyUrl, sdkReady, signOrFetchImpl } from "../src/pagePool";
 
 const fetchStub = () =>
   vi.fn(async () => ({
@@ -66,5 +66,22 @@ describe("parseProxyUrl", () => {
 
   it("rejects unsupported protocols", () => {
     expect(() => parseProxyUrl("ftp://proxy.example.com")).toThrow(/unsupported proxy protocol/);
+  });
+});
+
+describe("sdkReady", () => {
+  const hookedFetch = function fetch() { return undefined; };
+
+  it("is false until fetch is hooked and msToken is set", () => {
+    vi.stubGlobal("window", { fetch: Math.max });
+    vi.stubGlobal("document", { cookie: "msToken=abc" });
+    expect(sdkReady()).toBe(false);
+
+    vi.stubGlobal("window", { fetch: hookedFetch });
+    vi.stubGlobal("document", { cookie: "other=1" });
+    expect(sdkReady()).toBe(false);
+
+    vi.stubGlobal("document", { cookie: "other=1; msToken=abc" });
+    expect(sdkReady()).toBe(true);
   });
 });
