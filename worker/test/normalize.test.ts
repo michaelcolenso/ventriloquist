@@ -3,6 +3,7 @@ import {
   extractTranscript,
   normalizeComments,
   normalizeHashtag,
+  extractUserDetailFromHtml,
   normalizeProfile,
   normalizeSearchResult,
   normalizeSound,

@@ -5,6 +5,7 @@ import { optionalNumber, optionalString, requireString } from "../params";
 import { SignerClient } from "../signerClient";
 import {
   extractTranscript,
+  extractUserDetailFromHtml,
   normalizeComments,
   normalizeHashtag,
   normalizeProfile,
@@ -72,9 +73,8 @@ export class SignerProvider implements CapabilityProvider {
       }
 
       case "profile": {
-        const payload = await this.getJson(capability, ctx, "/api/user/detail/", {
-          uniqueId: requireString(this.name, capability, params, "username").replace(/^@/, ""),
-        });
+        const username = requireString(this.name, capability, params, "username").replace(/^@/, "");
+        const payload = await this.getUserDetail(capability, ctx, username);
         const profile = normalizeProfile(payload);
         if (!profile) this.invalidShape(capability, "user detail");
         return profile;
@@ -207,14 +207,44 @@ export class SignerProvider implements CapabilityProvider {
     };
   }
 
+  /** Profile pages embed the user detail; the web client never calls /api/user/detail/. */
+  private async getUserDetail(
+    capability: Capability,
+    ctx: CallContext,
+    username: string,
+  ): Promise<Record<string, unknown>> {
+    const detail = (await this.getJson(
+      capability,
+      ctx,
+      `/@${encodeURIComponent(username)}`,
+      {},
+      0,
+      (cap, text) => {
+        const parsed = extractUserDetailFromHtml(text);
+        if (!parsed) {
+          throw new ProviderError(this.name, cap, "profile page had no embedded user data", {
+            retryable: true,
+          });
+        }
+        return parsed;
+      },
+    )) as Record<string, unknown>;
+    // 10202: no such user. Not a provider fault, so it must not trip the breaker.
+    if (detail.statusCode === 10202) {
+      throw new ProviderError(this.name, capability, `@${username} does not exist`, {
+        retryable: false,
+        countsTowardBreaker: false,
+      });
+    }
+    return detail;
+  }
+
   private async resolveSecUid(
     capability: Capability,
     ctx: CallContext,
     username: string,
   ): Promise<string> {
-    const payload = await this.getJson(capability, ctx, "/api/user/detail/", {
-      uniqueId: username,
-    });
+    const payload = await this.getUserDetail(capability, ctx, username);
     const raw = (payload ?? {}) as Record<string, unknown>;
     const info = (raw.userInfo ?? raw.user_info ?? raw) as Record<string, unknown>;
     const user = (info.user ?? info.user_info ?? info) as Record<string, unknown>;
@@ -253,6 +283,7 @@ export class SignerProvider implements CapabilityProvider {
     path: string,
     query: Record<string, string | number | undefined>,
     attempt = 0,
+    parse: (capability: Capability, text: string) => unknown = (cap, text) => this.parseBody(cap, text),
   ): Promise<unknown> {
     const url = new URL(path, WEB_BASE);
     for (const [key, value] of Object.entries(query)) {
@@ -269,7 +300,7 @@ export class SignerProvider implements CapabilityProvider {
     // warmed page. The body is the response; parse it directly.
     if (signed.mode === "in_page") {
       if ((signed.status === 403 || signed.status === 429) && attempt === 0) {
-        return this.getJson(capability, ctx, path, query, attempt + 1);
+        return this.getJson(capability, ctx, path, query, attempt + 1, parse);
       }
       if (signed.status >= 400) {
         throw new ProviderError(
@@ -283,7 +314,7 @@ export class SignerProvider implements CapabilityProvider {
           },
         );
       }
-      return this.parseBody(capability, signed.body);
+      return parse(capability, signed.body);
     }
 
     let response: Response;
@@ -307,7 +338,7 @@ export class SignerProvider implements CapabilityProvider {
     // fresh signature before failing over, because a stale msToken is the
     // single most common (and cheapest) signer failure.
     if ((response.status === 403 || response.status === 429) && attempt === 0) {
-      return this.getJson(capability, ctx, path, query, attempt + 1);
+      return this.getJson(capability, ctx, path, query, attempt + 1, parse);
     }
 
     if (!response.ok) {
@@ -324,7 +355,7 @@ export class SignerProvider implements CapabilityProvider {
     }
 
     const text = await response.text();
-    return this.parseBody(capability, text);
+    return parse(capability, text);
   }
 
   private parseBody(capability: Capability, text: string): unknown {

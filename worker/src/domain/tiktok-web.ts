@@ -196,6 +196,24 @@ export function normalizeSearchResult(
   };
 }
 
+/**
+ * The web client does not call /api/user/detail/ for a profile page: the user
+ * detail ships inside the page HTML as JSON in the rehydration script. Returns
+ * that `webapp.user-detail` object (same shape as the API payload) or null.
+ */
+export function extractUserDetailFromHtml(html: string): Record<string, unknown> | null {
+  const match = /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/.exec(html);
+  if (!match?.[1]) return null;
+  let data: unknown;
+  try {
+    data = JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+  const scope = asObject(asObject(data)?.__DEFAULT_SCOPE__);
+  return asObject(scope?.["webapp.user-detail"]) ?? null;
+}
+
 export function normalizeProfile(payload: unknown): Profile | null {
   const root = asObject(payload);
   if (!root) return null;
