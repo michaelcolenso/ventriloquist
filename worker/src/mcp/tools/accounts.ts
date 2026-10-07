@@ -26,17 +26,29 @@ export const profileTool = defineTool({
     const profileExecution = await ctx.route<Profile>("profile", { username });
     const profile = profileExecution.value;
 
+    const warnings: string[] = [];
     let videos: Video[] = [];
     let videoExecution: ExecutionResult<VideoList> | null = null;
     if (input.include_videos && input.video_count > 0) {
-      videoExecution = await ctx.route<VideoList>("profile_videos", {
-        username,
-        count: input.video_count,
-      });
-      videos = videoExecution.value.items ?? [];
-      ctx.snapshot(
-        buildVideoSnapshotStatements(ctx.env.DB, videos, ctx.now, videoExecution.source),
-      );
+      // The profile itself is already in hand, so a failed video list degrades
+      // to a warning instead of discarding it (TikTok blocks the video list
+      // endpoint for guest sessions).
+      try {
+        videoExecution = await ctx.route<VideoList>("profile_videos", {
+          username,
+          count: input.video_count,
+        });
+        videos = videoExecution.value.items ?? [];
+      } catch (error) {
+        warnings.push(
+          `Recent videos unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      if (videoExecution) {
+        ctx.snapshot(
+          buildVideoSnapshotStatements(ctx.env.DB, videos, ctx.now, videoExecution.source),
+        );
+      }
     }
 
     return {
@@ -64,6 +76,7 @@ export const profileTool = defineTool({
         profile: routeMeta(profileExecution),
         videos: videoExecution ? routeMeta(videoExecution) : null,
       },
+      warnings: warnings.length ? warnings : undefined,
     };
   },
 });
