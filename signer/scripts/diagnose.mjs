@@ -1,5 +1,7 @@
 // Run inside the signer container to see how the browser reaches TikTok:
 //   docker exec -i -w /app signer node --input-type=module < signer/scripts/diagnose.mjs
+// Pass -e DIAG_URL=https://www.tiktok.com/@tiktok to load another page, and
+// -e DIAG_PATH=/api/user/detail/ to print the full parameter set of one API path.
 // Uses the container's SIGNER_PROXY_URL. Prints proxy host, cookie NAMES and
 // parameter counts only, never credentials or cookie values.
 import puppeteer from "puppeteer-core";
@@ -18,6 +20,17 @@ const args = [
 ];
 if (proxy) args.push(`--proxy-server=${proxy.protocol}//${proxy.host}`);
 
+const PAGE = process.env.DIAG_URL ?? "https://www.tiktok.com/tag/babynames";
+const WATCH = process.env.DIAG_PATH ?? "";
+// Parameters that describe the browser, not the person: safe to show values for.
+const SAFE = new Set([
+  "aid", "app_language", "app_name", "browser_language", "browser_name", "browser_online",
+  "browser_platform", "browser_version", "channel", "cookie_enabled", "data_collection_enabled",
+  "device_platform", "focus_state", "from_page", "history_len", "is_fullscreen", "is_page_visible",
+  "language", "os", "priority_region", "region", "screen_height", "screen_width", "tz_name",
+  "user_is_login", "webcast_language", "coverFormat", "count", "cursor", "secUid", "uniqueId",
+  "keyword", "itemId", "challengeID", "challengeName", "musicId", "aweme_id", "from_page",
+]);
 const report = { proxy: proxy ? proxy.host : null, failed_requests: [], requests: [] };
 const browser = await puppeteer.launch({ executablePath: "/usr/bin/chromium", headless: true, args });
 try {
@@ -44,12 +57,18 @@ try {
     } catch {
       /* body not available */
     }
-    report.requests.push({ path: u.pathname, status: res.status(), bytes, n_params: [...u.searchParams.keys()].length });
+    const entry = { path: u.pathname, status: res.status(), bytes, n_params: [...u.searchParams.keys()].length };
+    if (WATCH && u.pathname === WATCH) {
+      entry.params = Object.fromEntries(
+        [...u.searchParams.entries()].map(([key, value]) => [key, SAFE.has(key) ? value : `<${value.length} chars>`]),
+      );
+    }
+    report.requests.push(entry);
   });
 
   const started = Date.now();
   try {
-    const response = await page.goto("https://www.tiktok.com/tag/babynames", {
+    const response = await page.goto(PAGE, {
       waitUntil: "domcontentloaded",
       timeout: 60_000,
     });
